@@ -28,11 +28,33 @@ Speak as if talking to someone directly."""
 
 def get_system_prompt(state: InterviewState) -> str:
     """Generate the system prompt based on current state."""
-    return SYSTEM_PROMPT_TEMPLATE.format(
+    prompt = SYSTEM_PROMPT_TEMPLATE.format(
         interview_type=state.interview_type,
         difficulty=state.difficulty,
         phase=state.phase.value,
     )
+
+    # Use structured resume data if available, fall back to raw text
+    resume_context = None
+    if state.parsed_resume:
+        resume_context = state.parsed_resume.to_interview_context()
+    elif state.resume_context:
+        resume_context = state.resume_context
+
+    if resume_context:
+        prompt += f"""
+
+CANDIDATE'S RESUME:
+{resume_context}
+
+Use this background to:
+- Reference specific experiences, projects, or skills from their resume
+- Ask relevant questions about their listed experience
+- Follow up on specific roles, projects, or accomplishments mentioned
+- Tailor the difficulty and focus based on their apparent skill level
+- Make the conversation feel personalized and informed"""
+
+    return prompt
 
 
 PHASE_INSTRUCTIONS = {

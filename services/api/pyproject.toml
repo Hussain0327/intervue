@@ -31,6 +31,9 @@ dependencies = [
     # Utilities
     "python-multipart>=0.0.6",
     "httpx>=0.26.0",
+
+    # PDF processing
+    "pdfplumber>=0.10.0",
 ]
 
 [project.optional-dependencies]

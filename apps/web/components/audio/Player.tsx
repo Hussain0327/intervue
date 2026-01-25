@@ -24,6 +24,8 @@ export function Player({
 }: PlayerProps) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
 
@@ -41,19 +43,22 @@ export function Player({
       cleanupUrl();
       setPlaybackState("idle");
       setProgress(0);
+      setCurrentTime(0);
+      setDuration(0);
       return;
     }
 
-    // Clean up previous
     cleanupUrl();
 
-    // Create new audio URL
     const url = createAudioUrl(audioBase64, format);
     urlRef.current = url;
 
-    // Create and configure audio element
     const audio = new Audio(url);
     audioRef.current = audio;
+
+    audio.onloadedmetadata = () => {
+      setDuration(audio.duration);
+    };
 
     audio.onplay = () => {
       setPlaybackState("playing");
@@ -67,6 +72,7 @@ export function Player({
     audio.onended = () => {
       setPlaybackState("idle");
       setProgress(0);
+      setCurrentTime(0);
       onPlaybackEnd?.();
     };
 
@@ -78,10 +84,10 @@ export function Player({
     audio.ontimeupdate = () => {
       if (audio.duration > 0) {
         setProgress((audio.currentTime / audio.duration) * 100);
+        setCurrentTime(audio.currentTime);
       }
     };
 
-    // Auto-play if enabled
     if (autoPlay) {
       audio.play().catch((err) => {
         console.error("Auto-play failed:", err);
@@ -117,33 +123,66 @@ export function Player({
   }
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg">
+    <div className="glass rounded-full px-4 py-3 flex items-center gap-4 shadow-sm border border-teal-200/50">
+      {/* Play/Pause button */}
       <button
         type="button"
         onClick={handlePlayPause}
-        className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 flex items-center justify-center transition-colors"
+        className="w-10 h-10 rounded-full bg-teal-700 hover:bg-teal-600 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 shadow-md"
       >
         {playbackState === "playing" ? (
-          <PauseIcon className="w-5 h-5 text-white" />
+          <PauseIcon className="w-4 h-4 text-white" />
         ) : (
-          <PlayIcon className="w-5 h-5 text-white ml-0.5" />
+          <PlayIcon className="w-4 h-4 text-white ml-0.5" />
         )}
       </button>
 
-      <div className="flex-1">
-        <div className="h-2 bg-gray-300 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 transition-all duration-100"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+      {/* Waveform visualization */}
+      <div className="flex-1 flex items-center gap-0.5 h-8 px-2">
+        {Array.from({ length: 30 }).map((_, i) => {
+          const barProgress = (i / 30) * 100;
+          const isActive = barProgress <= progress;
+          const heights = [40, 70, 55, 85, 45, 75, 50, 90, 60, 80, 45, 70, 55, 85, 65, 75, 50, 80, 60, 70, 45, 85, 55, 75, 65, 80, 50, 70, 60, 45];
+
+          return (
+            <div
+              key={i}
+              className={`
+                w-1 rounded-full transition-all duration-150
+                ${isActive ? "bg-teal-600" : "bg-teal-200"}
+                ${playbackState === "playing" && isActive ? "animate-waveform-bar" : ""}
+              `}
+              style={{
+                height: `${heights[i % heights.length]}%`,
+                animationDelay: playbackState === "playing" ? `${i * 0.05}s` : "0s",
+              }}
+            />
+          );
+        })}
       </div>
 
+      {/* Time display */}
+      <div className="flex items-center gap-2 font-mono text-xs text-teal-600">
+        <span>{formatTime(currentTime)}</span>
+        <span className="text-teal-300">/</span>
+        <span>{formatTime(duration)}</span>
+      </div>
+
+      {/* Speaker indicator */}
       {playbackState === "playing" && (
-        <SpeakerIcon className="w-5 h-5 text-blue-500 animate-pulse" />
+        <div className="flex items-center">
+          <SpeakerIcon className="w-5 h-5 text-cyan-500 animate-pulse" />
+        </div>
       )}
     </div>
   );
+}
+
+function formatTime(seconds: number): string {
+  if (!seconds || isNaN(seconds)) return "0:00";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 function PlayIcon({ className }: { className?: string }) {

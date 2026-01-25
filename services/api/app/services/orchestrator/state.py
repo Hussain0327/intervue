@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
+from app.schemas.resume import ParsedResume
 from app.services.llm.client import LLMMessage
 
 
@@ -30,6 +31,8 @@ class InterviewState:
     started_at: datetime = field(default_factory=datetime.utcnow)
     interview_type: str = "behavioral"
     difficulty: str = "medium"
+    resume_context: str = ""
+    parsed_resume: ParsedResume | None = None
 
     def add_message(self, role: str, content: str) -> int:
         """Add a message to conversation history and return sequence number."""

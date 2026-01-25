@@ -13,8 +13,10 @@ Practice technical interviews with an AI interviewer that listens, responds, and
 - **Voice-based interviews** — Hold-to-talk recording with natural conversation flow
 - **Real-time transcription** — Whisper-powered speech-to-text
 - **AI interviewer** — Claude/GPT-4 powered responses with text-to-speech
+- **Resume upload** — PDF parsing with LLM-powered structured extraction for personalized interviews
 - **Multiple interview types** — Behavioral, technical, and coding interviews
 - **Live transcript** — See the conversation as it happens
+- **Interview state machine** — Structured phases (intro, warmup, main, follow-up, wrap-up)
 
 ## Tech Stack
 
@@ -119,7 +121,8 @@ intervue/
 │   │   │   ├── services/    # Core business logic
 │   │   │   │   ├── llm/     # Claude/GPT client
 │   │   │   │   ├── speech/  # STT + TTS
-│   │   │   │   └── orchestrator/  # Interview state
+│   │   │   │   ├── orchestrator/  # Interview state
+│   │   │   │   └── resume/  # PDF parsing
 │   │   │   └── models/      # SQLAlchemy models
 │   │   └── pyproject.toml
 │   │
@@ -140,7 +143,11 @@ intervue/
 
 ## Documentation
 
-- **[Development Guide](docs/DEVELOPMENT.md)** — Setup, architecture, and API reference
+- **[Development Guide](docs/DEVELOPMENT.md)** — Setup, commands, and troubleshooting
+- **[Architecture](docs/ARCHITECTURE.md)** — System design and technical overview
+- **[API Reference](docs/API.md)** — REST endpoints and WebSocket protocol
+- **[Features](docs/FEATURES.md)** — Feature status and roadmap
+- **[AI Prompts](docs/AI_PROMPTS.md)** — Interviewer prompt system and customization
 
 ## License
 

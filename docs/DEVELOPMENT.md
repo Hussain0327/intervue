@@ -24,6 +24,7 @@ The core voice interview experience is functional: users can have a real-time co
 | Real-time Transcription | Done | Live transcript display during interviews |
 | WebSocket Protocol | Done | Full-duplex communication for voice loop |
 | Interview State Machine | Done | Phase management (intro, warmup, main, wrap-up) |
+| Resume Upload & Parsing | Done | PDF parsing with LLM-powered structured extraction |
 
 ### Pending Features
 
@@ -31,9 +32,9 @@ The core voice interview experience is functional: users can have a real-time co
 |---------|----------|-------------|
 | User Authentication | High | JWT-based auth with session management |
 | Database Persistence | High | Save interview sessions and transcripts |
-| Interview Planning | Medium | Resume/JD parsing for personalized interviews |
 | Evaluation & Scoring | Medium | Rubric-based assessment with feedback |
 | Code Execution Sandbox | Medium | Secure code running for coding interviews |
+| Interview History & Analytics | Medium | Track past interviews and performance trends |
 | Production Deployment | Low | Kubernetes manifests and CI/CD |
 
 ## Environment Setup
@@ -164,6 +165,27 @@ make clean         # Remove all build artifacts and caches
 }
 ```
 
+**Resume Context (optional, send before start_interview):**
+```json
+{
+  "type": "resume_context",
+  "parsed_resume": {
+    "contact": { "name": "Jane Doe", ... },
+    "experiences": [...],
+    "education": [...],
+    "skills": [...],
+    "raw_text": "..."
+  }
+}
+```
+
+**Start Interview (send after connection, optionally after resume_context):**
+```json
+{
+  "type": "start_interview"
+}
+```
+
 #### Server → Client Messages
 
 **Session Started:**
@@ -234,6 +256,56 @@ make clean         # Remove all build artifacts and caches
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check |
+| POST | `/resume/parse` | Parse PDF resume and extract structured data |
+
+#### Resume Parsing Endpoint
+
+**POST /resume/parse**
+
+Parse a PDF resume and extract structured candidate data using LLM-powered extraction.
+
+**Request:**
+- Content-Type: `multipart/form-data`
+- Body: `file` (PDF file, max 10MB)
+
+**Response:**
+```json
+{
+  "contact": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "phone": "+1-555-123-4567",
+    "location": "San Francisco, CA",
+    "linkedin": "https://linkedin.com/in/janedoe"
+  },
+  "summary": "Senior software engineer with 8+ years experience...",
+  "experiences": [
+    {
+      "company": "Tech Corp",
+      "title": "Senior Engineer",
+      "start_date": "Jan 2020",
+      "end_date": "Present",
+      "description": "Lead backend development...",
+      "highlights": ["Led team of 5", "Improved performance by 40%"]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Stanford University",
+      "degree": "Bachelor of Science",
+      "field": "Computer Science",
+      "graduation_date": "2015"
+    }
+  ],
+  "skills": ["Python", "TypeScript", "AWS", "PostgreSQL"],
+  "certifications": ["AWS Solutions Architect"],
+  "raw_text": "Original PDF text..."
+}
+```
+
+**Error Responses:**
+- `400`: Invalid file type (not PDF), file too large, or empty file
+- `500`: Resume parsing failed
 
 ## Troubleshooting
 
@@ -313,16 +385,49 @@ Browser ←──WebSocket──→ FastAPI ←──HTTP──→ OpenAI/Anthro
 ### Interview Session Flow
 
 1. **Connection** — Client connects via WebSocket
-2. **Session Start** — Server creates session, sends intro
-3. **Voice Loop:**
+2. **Session Started** — Server sends `session_started` message
+3. **Resume Context (optional)** — Client sends `resume_context` with parsed resume data
+4. **Start Interview** — Client sends `start_interview`, server generates intro
+5. **Voice Loop:**
    - Client records audio (hold to talk)
-   - Client sends audio as base64 WebM
-   - Server transcribes with Whisper
-   - Server generates response with LLM
-   - Server synthesizes speech with TTS
-   - Server sends audio back
-   - Client plays audio
-4. **Session End** — Client sends end message, server cleans up
+   - Client sends `audio` message with base64 WebM
+   - Server transcribes with Whisper (`processing_stt` state)
+   - Server generates response with LLM (`generating` state)
+   - Server synthesizes speech with TTS (`speaking` state)
+   - Server sends `audio_response` back
+   - Client plays audio, sends `playback_complete`
+   - Server returns to `ready` state
+6. **Session End** — Client sends `end_session`, server sends `session_ended`
+
+### WebSocket Message Sequence
+
+```
+Client                          Server
+   |                               |
+   |-------- connect ------------>|
+   |<------- session_started -----|
+   |                               |
+   |-------- resume_context ----->|  (optional)
+   |-------- start_interview ---->|
+   |<------- status: generating --|
+   |<------- transcript ----------|
+   |<------- status: speaking ----|
+   |<------- audio_response ------|
+   |<------- status: ready -------|
+   |                               |
+   |-------- audio -------------->|  (voice loop begins)
+   |<------- status: processing --|
+   |<------- transcript ----------|
+   |<------- status: generating --|
+   |<------- transcript ----------|
+   |<------- status: speaking ----|
+   |<------- audio_response ------|
+   |-------- playback_complete -->|
+   |<------- status: ready -------|
+   |                               |
+   |-------- end_session -------->|
+   |<------- session_ended -------|
+```
 
 ### State Machine Phases
 

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.routers import ws_interview
+from app.routers import resume, ws_interview
 
 
 settings = get_settings()
@@ -46,6 +46,7 @@ async def health_check() -> dict[str, str]:
 
 # Include routers
 app.include_router(ws_interview.router, tags=["interview"])
+app.include_router(resume.router)
 
 
 if __name__ == "__main__":

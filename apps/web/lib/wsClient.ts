@@ -165,6 +165,29 @@ export class WSClient {
     );
   }
 
+  sendResumeContext(resumeData: object): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "resume_context",
+        parsed_resume: resumeData,
+      })
+    );
+  }
+
+  sendStartInterview(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
+      return;
+    }
+
+    this.ws.send(JSON.stringify({ type: "start_interview" }));
+  }
+
   sendPlaybackComplete(): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
 

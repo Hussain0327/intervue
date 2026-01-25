@@ -21,6 +21,7 @@ export default function InterviewSession() {
   const [sessionEnded, setSessionEnded] = useState(false);
 
   const wsClientRef = useRef<WSClient | null>(null);
+  const resumeSentRef = useRef(false);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -54,6 +55,23 @@ export default function InterviewSession() {
       },
       onSessionStart: () => {
         setError(null);
+        // Send resume context if available, then signal ready to start
+        if (!resumeSentRef.current && wsClientRef.current) {
+          resumeSentRef.current = true;
+          const parsedResumeJson = sessionStorage.getItem("parsed_resume");
+          if (parsedResumeJson) {
+            try {
+              const parsedResume = JSON.parse(parsedResumeJson);
+              wsClientRef.current.sendResumeContext(parsedResume);
+            } catch (e) {
+              console.error("Failed to parse stored resume:", e);
+            }
+            // Clear from sessionStorage after sending
+            sessionStorage.removeItem("parsed_resume");
+          }
+          // Signal the backend to start the interview
+          wsClientRef.current.sendStartInterview();
+        }
       },
       onSessionEnd: (_, totalTurns) => {
         setSessionEnded(true);
@@ -103,16 +121,23 @@ export default function InterviewSession() {
     interviewState === "processing_stt" || interviewState === "generating";
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen flex flex-col bg-valtric-gradient">
       {/* Header */}
-      <header className="border-b bg-white px-4 py-3 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Interview Session</h1>
-        <div className="flex items-center gap-4">
+      <header className="border-b border-teal-200/50 bg-white/80 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-20">
+        <div className="flex items-center gap-3">
+          <ValtricLogo />
+          <div className="flex flex-col">
+            <span className="font-body font-semibold text-base text-teal-900">Valtric</span>
+            <span className="text-xs text-teal-500 -mt-0.5">AI for Everyone</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
           <StatusIndicator state={interviewState} isConnected={isConnected} />
           {!sessionEnded && (
             <button
               onClick={handleEndSession}
-              className="px-4 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
             >
               End Session
             </button>
@@ -122,8 +147,11 @@ export default function InterviewSession() {
 
       {/* Error banner */}
       {error && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-2">
-          <p className="text-sm text-red-600">{error}</p>
+        <div className="bg-red-50 border-b border-red-200 px-6 py-3">
+          <p className="text-sm text-red-600 flex items-center gap-2">
+            <AlertIcon className="w-4 h-4" />
+            {error}
+          </p>
         </div>
       )}
 
@@ -136,7 +164,7 @@ export default function InterviewSession() {
 
         {/* Audio player */}
         {currentAudio && (
-          <div className="px-4 py-2 border-t bg-white">
+          <div className="px-6 py-4 border-t border-teal-200/50 bg-white/50 backdrop-blur-sm">
             <Player
               audioBase64={currentAudio}
               format={audioFormat}
@@ -147,17 +175,9 @@ export default function InterviewSession() {
         )}
 
         {/* Controls */}
-        <div className="border-t bg-white p-6">
+        <div className="border-t border-teal-200/50 bg-white p-8">
           {sessionEnded ? (
-            <div className="text-center">
-              <p className="text-gray-600 mb-4">Session has ended.</p>
-              <button
-                onClick={handleReturnHome}
-                className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold transition-colors"
-              >
-                Start New Interview
-              </button>
-            </div>
+            <SessionEndedCard onReturnHome={handleReturnHome} />
           ) : (
             <Recorder
               onRecordingComplete={handleRecordingComplete}
@@ -170,6 +190,14 @@ export default function InterviewSession() {
   );
 }
 
+function ValtricLogo() {
+  return (
+    <div className="w-9 h-9 rounded-xl bg-teal-700 flex items-center justify-center shadow-sm">
+      <span className="text-white font-display font-semibold text-lg">V</span>
+    </div>
+  );
+}
+
 function StatusIndicator({
   state,
   isConnected,
@@ -179,38 +207,103 @@ function StatusIndicator({
 }) {
   let statusText: string;
   let statusColor: string;
+  let bgColor: string;
 
   if (!isConnected) {
-    statusText = "Connecting...";
-    statusColor = "bg-yellow-400";
+    statusText = "Connecting";
+    statusColor = "bg-amber-500";
+    bgColor = "bg-amber-50";
   } else {
     switch (state) {
       case "ready":
         statusText = "Ready";
-        statusColor = "bg-green-400";
+        statusColor = "bg-teal-500";
+        bgColor = "bg-teal-50";
         break;
       case "processing_stt":
-        statusText = "Listening...";
-        statusColor = "bg-blue-400";
+        statusText = "Listening";
+        statusColor = "bg-cyan-500";
+        bgColor = "bg-cyan-50";
         break;
       case "generating":
-        statusText = "Thinking...";
-        statusColor = "bg-purple-400";
+        statusText = "Thinking";
+        statusColor = "bg-cyan-500";
+        bgColor = "bg-cyan-50";
         break;
       case "speaking":
         statusText = "Speaking";
-        statusColor = "bg-indigo-400";
+        statusColor = "bg-teal-600";
+        bgColor = "bg-teal-50";
         break;
       default:
         statusText = "Ready";
-        statusColor = "bg-green-400";
+        statusColor = "bg-teal-500";
+        bgColor = "bg-teal-50";
     }
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${bgColor}`}>
       <span className={`w-2 h-2 rounded-full ${statusColor} animate-pulse`} />
-      <span className="text-sm text-gray-600">{statusText}</span>
+      <span className="text-sm font-mono font-medium text-teal-700">{statusText}</span>
     </div>
+  );
+}
+
+function SessionEndedCard({ onReturnHome }: { onReturnHome: () => void }) {
+  return (
+    <div className="text-center py-4">
+      <div className="w-16 h-16 rounded-2xl bg-teal-100 flex items-center justify-center mx-auto mb-4">
+        <CheckIcon className="w-8 h-8 text-teal-600" />
+      </div>
+      <h3 className="font-display font-semibold text-xl text-teal-900 mb-2">
+        Session Complete
+      </h3>
+      <p className="text-teal-600 mb-6">
+        Great practice! Ready for another round?
+      </p>
+      <button
+        onClick={onReturnHome}
+        className="px-6 py-3 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-body font-semibold transition-all hover:shadow-glow-teal hover:-translate-y-0.5 active:scale-[0.98]"
+      >
+        Start New Interview
+      </button>
+    </div>
+  );
+}
+
+function AlertIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 13l4 4L19 7"
+      />
+    </svg>
   );
 }

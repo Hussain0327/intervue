@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
     AudioResponseMessage,
     ErrorMessage,
@@ -200,14 +201,10 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
 
     logger.info(f"Interview session started: {session_id}")
 
-    # Send session started message
+    # Send session started message - client will send resume_context (optional) then start_interview
     await send_message(websocket, SessionStartedMessage(session_id=str(state.session_id)))
 
-    # Start with interviewer introduction
-    await start_interview(websocket, session_id)
-
-    # Ready for candidate input
-    await send_message(websocket, StatusMessage(state=WSState.READY))
+    interview_started = False
 
     try:
         while True:
@@ -217,7 +214,30 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
 
             msg_type = message.get("type")
 
-            if msg_type == "audio":
+            if msg_type == "resume_context":
+                # Store parsed resume before interview starts
+                parsed_resume_data = message.get("parsed_resume")
+                if parsed_resume_data:
+                    try:
+                        state.parsed_resume = ParsedResume(**parsed_resume_data)
+                        logger.info(
+                            f"Parsed resume received for session: {session_id}, "
+                            f"candidate: {state.parsed_resume.contact.name}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to parse resume data: {e}")
+                        # Fall back to raw text if available
+                        if "raw_text" in parsed_resume_data:
+                            state.resume_context = parsed_resume_data["raw_text"]
+
+            elif msg_type == "start_interview":
+                # Client is ready to start the interview
+                if not interview_started:
+                    interview_started = True
+                    await start_interview(websocket, session_id)
+                    await send_message(websocket, StatusMessage(state=WSState.READY))
+
+            elif msg_type == "audio":
                 # Process candidate audio
                 await process_audio_turn(
                     websocket,

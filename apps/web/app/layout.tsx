@@ -1,12 +1,38 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Playfair_Display, Inter, JetBrains_Mono } from "next/font/google";
 import "@/styles/globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "Intervue - AI Interview Platform",
-  description: "Practice interviews with AI-powered voice interviews",
+  title: "Intervue by Valtric - AI Interview Practice",
+  description:
+    "Practice interviews with AI-powered voice conversations. Built by Valtric - AI for Everyone.",
+  openGraph: {
+    title: "Intervue by Valtric - AI Interview Practice",
+    description:
+      "Practice interviews with AI-powered voice conversations. No signup required.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -15,8 +41,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" className={`${playfair.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
+      <body className="font-body antialiased">{children}</body>
     </html>
   );
 }

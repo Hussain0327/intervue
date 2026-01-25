@@ -37,6 +37,19 @@ class EndSessionMessage(BaseModel):
     type: Literal["end_session"] = "end_session"
 
 
+class ResumeContextMessage(BaseModel):
+    """Resume context from client."""
+
+    type: Literal["resume_context"] = "resume_context"
+    resume_text: str
+
+
+class StartInterviewMessage(BaseModel):
+    """Client signals ready to start the interview."""
+
+    type: Literal["start_interview"] = "start_interview"
+
+
 # Server -> Client messages
 
 
