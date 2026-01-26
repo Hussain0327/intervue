@@ -14,7 +14,9 @@ Practice technical interviews with an AI interviewer that listens, responds, and
 - **Real-time transcription** — Whisper-powered speech-to-text
 - **AI interviewer** — Claude/GPT-4 powered responses with text-to-speech
 - **Resume upload** — PDF parsing with LLM-powered structured extraction for personalized interviews
-- **Multiple interview types** — Behavioral, technical, and coding interviews
+- **Interview modes** — Choose Full Interview, Behavioral Only, Coding Challenge, or System Design
+- **Round evaluation** — Get scored (0-100) after each round with pass/fail feedback
+- **Progress tracking** — Resume interrupted interviews, track completion across rounds
 - **Live transcript** — See the conversation as it happens
 - **Interview state machine** — Structured phases (intro, warmup, main, follow-up, wrap-up)
 
