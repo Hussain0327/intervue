@@ -99,3 +99,19 @@ class SessionEndedMessage(BaseModel):
     type: Literal["session_ended"] = "session_ended"
     session_id: str
     total_turns: int
+
+
+class EvaluationMessage(BaseModel):
+    """Interview round evaluation result."""
+
+    type: Literal["evaluation"] = "evaluation"
+    round: int
+    score: float
+    passed: bool
+    feedback: str
+
+
+class RequestEvaluationMessage(BaseModel):
+    """Client requests evaluation of the interview round."""
+
+    type: Literal["request_evaluation"] = "request_evaluation"

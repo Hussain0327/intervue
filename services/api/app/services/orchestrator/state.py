@@ -33,6 +33,9 @@ class InterviewState:
     difficulty: str = "medium"
     resume_context: str = ""
     parsed_resume: ParsedResume | None = None
+    target_role: str | None = None
+    current_round: int = 1  # 1=behavioral, 2=coding, 3=system_design
+    interview_mode: str = "full"  # full, behavioral, coding, system_design
 
     def add_message(self, role: str, content: str) -> int:
         """Add a message to conversation history and return sequence number."""
@@ -77,12 +80,16 @@ class SessionManager:
         session_id: str | None = None,
         interview_type: str = "behavioral",
         difficulty: str = "medium",
+        current_round: int = 1,
+        interview_mode: str = "full",
     ) -> InterviewState:
         """Create a new interview session."""
         state = InterviewState(
             session_id=UUID(session_id) if session_id else uuid4(),
             interview_type=interview_type,
             difficulty=difficulty,
+            current_round=current_round,
+            interview_mode=interview_mode,
         )
         self._sessions[str(state.session_id)] = state
         return state

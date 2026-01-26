@@ -11,7 +11,8 @@ export type MessageType =
   | "audio"
   | "error"
   | "session_started"
-  | "session_ended";
+  | "session_ended"
+  | "evaluation";
 
 export interface StatusMessage {
   type: "status";
@@ -49,13 +50,22 @@ export interface SessionEndedMessage {
   total_turns: number;
 }
 
+export interface EvaluationMessage {
+  type: "evaluation";
+  round: number;
+  score: number;
+  passed: boolean;
+  feedback: string;
+}
+
 export type ServerMessage =
   | StatusMessage
   | TranscriptMessage
   | AudioMessage
   | ErrorMessage
   | SessionStartedMessage
-  | SessionEndedMessage;
+  | SessionEndedMessage
+  | EvaluationMessage;
 
 export interface WSClientOptions {
   url: string;
@@ -66,6 +76,7 @@ export interface WSClientOptions {
   onSessionStart?: (sessionId: string) => void;
   onSessionEnd?: (sessionId: string, totalTurns: number) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onEvaluation?: (round: number, score: number, passed: boolean, feedback: string) => void;
 }
 
 export class WSClient {
@@ -131,6 +142,9 @@ export class WSClient {
       case "session_ended":
         this.options.onSessionEnd?.(message.session_id, message.total_turns);
         break;
+      case "evaluation":
+        this.options.onEvaluation?.(message.round, message.score, message.passed, message.feedback);
+        break;
     }
   }
 
@@ -179,13 +193,32 @@ export class WSClient {
     );
   }
 
-  sendStartInterview(): void {
+  sendStartInterview(role?: string, round?: number, mode?: string): void {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
       return;
     }
 
-    this.ws.send(JSON.stringify({ type: "start_interview" }));
+    const message: { type: string; role?: string; round?: number; mode?: string } = { type: "start_interview" };
+    if (role) {
+      message.role = role;
+    }
+    if (round) {
+      message.round = round;
+    }
+    if (mode) {
+      message.mode = mode;
+    }
+    this.ws.send(JSON.stringify(message));
+  }
+
+  requestEvaluation(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
+      return;
+    }
+
+    this.ws.send(JSON.stringify({ type: "request_evaluation" }));
   }
 
   sendPlaybackComplete(): void {

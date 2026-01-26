@@ -8,12 +8,14 @@ from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
     AudioResponseMessage,
     ErrorMessage,
+    EvaluationMessage,
     InterviewState as WSState,
     SessionEndedMessage,
     SessionStartedMessage,
     StatusMessage,
     TranscriptMessage,
 )
+from app.services.orchestrator.evaluator import evaluate_interview
 from app.services.llm.client import get_llm_client
 from app.services.orchestrator.prompts import (
     build_initial_prompt,
@@ -234,6 +236,21 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                 # Client is ready to start the interview
                 if not interview_started:
                     interview_started = True
+                    # Handle optional target role
+                    target_role = message.get("role")
+                    if target_role and state:
+                        state.target_role = target_role
+                        logger.info(f"Target role set for session {session_id}: {target_role}")
+                    # Handle optional round number
+                    round_num = message.get("round")
+                    if round_num and state:
+                        state.current_round = int(round_num)
+                        logger.info(f"Interview round set for session {session_id}: {round_num}")
+                    # Handle optional interview mode
+                    interview_mode = message.get("mode")
+                    if interview_mode and state:
+                        state.interview_mode = interview_mode
+                        logger.info(f"Interview mode set for session {session_id}: {interview_mode}")
                     await start_interview(websocket, session_id)
                     await send_message(websocket, StatusMessage(state=WSState.READY))
 
@@ -250,6 +267,40 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
 
             elif msg_type == "playback_complete":
                 # Client finished playing audio, ready for next input
+                await send_message(websocket, StatusMessage(state=WSState.READY))
+
+            elif msg_type == "request_evaluation":
+                # Evaluate the interview round
+                logger.info(f"Evaluation requested for session {session_id}")
+                await send_message(websocket, StatusMessage(state=WSState.GENERATING))
+
+                try:
+                    evaluation_result = await evaluate_interview(state)
+                    await send_message(
+                        websocket,
+                        EvaluationMessage(
+                            round=evaluation_result.round,
+                            score=evaluation_result.score,
+                            passed=evaluation_result.passed,
+                            feedback=evaluation_result.feedback,
+                        ),
+                    )
+                    logger.info(
+                        f"Evaluation sent for session {session_id}: "
+                        f"round={evaluation_result.round}, score={evaluation_result.score}"
+                    )
+                except Exception as e:
+                    logger.exception(f"Evaluation error for session {session_id}")
+                    await send_message(
+                        websocket,
+                        EvaluationMessage(
+                            round=state.current_round,
+                            score=0,
+                            passed=False,
+                            feedback=f"Evaluation failed: {str(e)}",
+                        ),
+                    )
+
                 await send_message(websocket, StatusMessage(state=WSState.READY))
 
             elif msg_type == "end_session":
