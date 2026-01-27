@@ -378,3 +378,31 @@ body {
   background: linear-gradient(90deg, transparent, rgba(0, 206, 209, 0.5), transparent);
   height: 1px;
 }
+
+/* Stage progress animation */
+@keyframes stage-progress {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.animate-stage-progress {
+  animation: stage-progress 2s ease-out forwards;
+}
+
+/* Smooth tab transition */
+.tab-indicator {
+  transition: transform 0.2s ease-out, width 0.2s ease-out;
+}
+
+/* Interview layout specific styles */
+@media (min-width: 1024px) {
+  .interview-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr 360px;
+    min-height: 100vh;
+  }
+}

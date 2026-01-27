@@ -53,6 +53,15 @@ module.exports = {
         '18': '4.5rem',
         '88': '22rem',
         '128': '32rem',
+        'rail': '280px',
+        'panel': '360px',
+      },
+      gridTemplateColumns: {
+        'interview': '280px 1fr 360px',
+      },
+      screens: {
+        'desktop': '1024px',
+        'wide': '1280px',
       },
       animation: {
         'breathe': 'breathe 3s ease-in-out infinite',
