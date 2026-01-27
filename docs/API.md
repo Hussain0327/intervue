@@ -214,13 +214,19 @@ Signal that the client is ready to begin the interview.
 
 ```json
 {
-  "type": "start_interview"
+  "type": "start_interview",
+  "role": "Software Engineer",
+  "round": 2,
+  "mode": "coding"
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | Yes | Must be `"start_interview"` |
+| `role` | string | No | Target role (e.g., "Software Engineer", "Frontend Developer") |
+| `round` | number | No | Interview round (1=behavioral, 2=coding, 3=system_design) |
+| `mode` | string | No | Interview mode: `"full"`, `"behavioral"`, `"coding"`, `"system_design"` |
 
 **Note:** The server will generate an introduction and start the interview after receiving this message.
 
@@ -241,6 +247,66 @@ Notify the server that audio playback has finished.
 | `type` | string | Yes | Must be `"playback_complete"` |
 
 **Note:** Send this after the browser finishes playing the interviewer's audio response.
+
+---
+
+### request_problem
+
+Request a coding problem for the coding challenge round. The server will select a problem based on the candidate's resume skills and target role.
+
+```json
+{
+  "type": "request_problem"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | Must be `"request_problem"` |
+
+**Note:** Send this when starting a coding round. The server will respond with a `problem` message.
+
+---
+
+### code_submission
+
+Submit code for evaluation during a coding challenge.
+
+```json
+{
+  "type": "code_submission",
+  "code": "def two_sum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i\n    return []",
+  "language": "python",
+  "problem_id": "two-sum"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | Must be `"code_submission"` |
+| `code` | string | Yes | The submitted source code |
+| `language` | string | Yes | Programming language (`python`, `javascript`, `typescript`, `java`, `cpp`, `go`) |
+| `problem_id` | string | Yes | ID of the problem being solved |
+
+**Note:** The server will evaluate the code and respond with a `code_evaluation` message.
+
+---
+
+### request_evaluation
+
+Request evaluation of the current interview round.
+
+```json
+{
+  "type": "request_evaluation"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | Yes | Must be `"request_evaluation"` |
+
+**Note:** The server will analyze the conversation (and submitted code for coding rounds) and respond with an `evaluation` message.
 
 ---
 
@@ -404,7 +470,182 @@ Sent when the interview session has ended.
 
 ---
 
+### problem
+
+Sent in response to `request_problem`. Contains the coding problem to solve.
+
+```json
+{
+  "type": "problem",
+  "problem": {
+    "id": "two-sum",
+    "title": "Two Sum",
+    "difficulty": "easy",
+    "description": "Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`.\n\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.\n\nYou can return the answer in any order.",
+    "examples": [
+      {
+        "input": "nums = [2,7,11,15], target = 9",
+        "output": "[0,1]",
+        "explanation": "Because nums[0] + nums[1] == 9, we return [0, 1]."
+      }
+    ],
+    "constraints": [
+      "2 <= nums.length <= 10^4",
+      "-10^9 <= nums[i] <= 10^9",
+      "-10^9 <= target <= 10^9",
+      "Only one valid answer exists."
+    ],
+    "starterCode": {
+      "python": "def two_sum(nums: list[int], target: int) -> list[int]:\n    pass",
+      "javascript": "function twoSum(nums, target) {\n    \n}",
+      "typescript": "function twoSum(nums: number[], target: number): number[] {\n    \n}",
+      "java": "class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        \n    }\n}",
+      "cpp": "class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        \n    }\n};",
+      "go": "func twoSum(nums []int, target int) []int {\n    \n}"
+    },
+    "tags": ["arrays", "hash-table"]
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `"problem"` |
+| `problem.id` | string | Unique problem identifier |
+| `problem.title` | string | Problem title |
+| `problem.difficulty` | string | `"easy"`, `"medium"`, or `"hard"` |
+| `problem.description` | string | Full problem description (markdown) |
+| `problem.examples` | array | Input/output examples with explanations |
+| `problem.constraints` | array | Problem constraints |
+| `problem.starterCode` | object | Starter code templates by language |
+| `problem.tags` | array | Problem category tags |
+
+---
+
+### code_evaluation
+
+Sent in response to `code_submission`. Contains evaluation results.
+
+```json
+{
+  "type": "code_evaluation",
+  "correct": true,
+  "score": 85,
+  "feedback": "Your solution correctly solves the problem using a hash map approach with O(n) time complexity. The code is clean and readable. Consider adding comments for complex logic.",
+  "analysis": {
+    "correctness": 90,
+    "edgeCaseHandling": 80,
+    "codeQuality": 85,
+    "complexity": 85
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `"code_evaluation"` |
+| `correct` | boolean | Whether the solution is functionally correct |
+| `score` | number | Overall score (0-100) |
+| `feedback` | string | Detailed feedback on the solution |
+| `analysis` | object | Breakdown by evaluation criterion (optional) |
+| `analysis.correctness` | number | Score for solution correctness (0-100) |
+| `analysis.edgeCaseHandling` | number | Score for handling edge cases (0-100) |
+| `analysis.codeQuality` | number | Score for code quality (0-100) |
+| `analysis.complexity` | number | Score for complexity analysis (0-100) |
+
+---
+
+### evaluation
+
+Sent in response to `request_evaluation`. Contains interview round evaluation.
+
+```json
+{
+  "type": "evaluation",
+  "round": 2,
+  "score": 78,
+  "passed": true,
+  "feedback": "Strong problem-solving skills demonstrated. Clearly explained approach before coding. Good communication throughout. Could improve edge case identification."
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `"evaluation"` |
+| `round` | number | Interview round number (1, 2, or 3) |
+| `score` | number | Overall score (0-100) |
+| `passed` | boolean | Whether candidate passed (score >= 70) |
+| `feedback` | string | Detailed feedback with strengths and improvement areas |
+
+---
+
 ## Schemas
+
+### CodingProblem
+
+Complete coding problem structure.
+
+```typescript
+interface CodingProblem {
+  id: string;                    // Unique identifier (e.g., "two-sum")
+  title: string;                 // Display title
+  difficulty: "easy" | "medium" | "hard";
+  description: string;           // Problem description (markdown)
+  examples: Example[];           // Input/output examples
+  constraints: string[];         // Problem constraints
+  starterCode: Record<string, string>;  // Starter code by language
+  tags: string[];                // Category tags
+}
+
+interface Example {
+  input: string;                 // Example input
+  output: string;                // Expected output
+  explanation?: string;          // Optional explanation
+}
+```
+
+**Available Problem Tags:**
+- `arrays`, `hash-table`, `linked-list`, `stack`
+- `trees`, `binary-search`, `graphs`, `bfs`, `dfs`
+- `dynamic-programming`, `greedy`, `two-pointers`
+- `strings`, `math`, `sorting`, `heap`
+
+---
+
+### CodeEvaluationResult
+
+Result from evaluating submitted code.
+
+```typescript
+interface CodeEvaluationResult {
+  correct: boolean;              // Solution is functionally correct
+  score: number;                 // Overall score (0-100)
+  feedback: string;              // Detailed feedback
+  analysis?: {
+    correctness: number;         // Correctness score (0-100)
+    edgeCaseHandling: number;    // Edge case handling (0-100)
+    codeQuality: number;         // Code quality (0-100)
+    complexity: number;          // Complexity analysis (0-100)
+  };
+}
+```
+
+---
+
+### EvaluationResult
+
+Result from evaluating an interview round.
+
+```typescript
+interface EvaluationResult {
+  round: number;                 // Round number (1, 2, or 3)
+  score: number;                 // Overall score (0-100)
+  passed: boolean;               // Score >= 70
+  feedback: string;              // Detailed feedback
+}
+```
+
+---
 
 ### ParsedResume
 

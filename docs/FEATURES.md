@@ -13,12 +13,12 @@ Feature documentation for the Intervue AI voice interview platform.
 | LLM | Multi-provider Support | Complete |
 | Interview | Behavioral Interviews | Complete |
 | Interview | Technical Interviews | Scaffolded |
-| Interview | Coding Interviews | Scaffolded |
+| Interview | Coding Interviews | Complete |
 | Interview | Difficulty Levels | Scaffolded |
 | Platform | User Authentication | Planned |
 | Platform | Database Persistence | Planned |
 | Platform | Interview History | Planned |
-| Evaluation | Scoring & Feedback | Planned |
+| Evaluation | Scoring & Feedback | Complete |
 | Infrastructure | Code Execution Sandbox | Planned |
 | Infrastructure | Production Deployment | Planned |
 
@@ -163,6 +163,118 @@ LLM_MODEL=claude-sonnet-4-20250514
 
 ---
 
+### Coding Interviews (Code Editor Mode)
+
+**Status:** Complete
+
+Real coding challenges with an embedded Monaco code editor where candidates write actual code.
+
+**How it works:**
+1. When interview mode is "coding", the UI switches to a split-panel layout
+2. AI selects a problem based on the candidate's resume skills and target role
+3. Problem is displayed with description, examples, and constraints
+4. Candidate writes code in a Monaco-powered editor with syntax highlighting
+5. Candidate can still ask clarifying questions via voice during coding
+6. On submission, AI evaluates code for correctness, edge cases, and quality
+7. AI announces results via voice and provides detailed feedback
+
+**Problem Selection Logic:**
+- Extracts skills from parsed resume (Python, JavaScript, React, databases, etc.)
+- Maps skills to problem tags (arrays, trees, strings, SQL, etc.)
+- Considers target role (Frontend → DOM/array problems, Backend → system/DB problems)
+- Selects appropriate difficulty based on experience level from resume
+- Uses weighted random selection favoring tag matches
+
+**Problem Bank:**
+- 19 curated LeetCode-style problems
+- 5 easy, 9 medium, 5 hard difficulty levels
+- Each problem includes starter code for 6 languages
+- Problems cover: arrays, hash tables, linked lists, trees, dynamic programming, graphs
+
+**Supported Languages:**
+| Language | Syntax Highlighting | Starter Code |
+|----------|-------------------|--------------|
+| Python | Yes | Yes |
+| JavaScript | Yes | Yes |
+| TypeScript | Yes | Yes |
+| Java | Yes | Yes |
+| C++ | Yes | Yes |
+| Go | Yes | Yes |
+
+**Code Evaluation Criteria:**
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| Correctness | 40% | Does the solution solve the problem? |
+| Edge Case Handling | 20% | Handles boundary conditions |
+| Code Quality | 20% | Readability, naming, structure |
+| Complexity | 20% | Time and space complexity analysis |
+
+**UI Layout:**
+- Top: Compact interviewer info with voice controls (record/play)
+- Left (40%): Problem panel with description, examples, constraints
+- Right (60%): Monaco code editor with language selector and submit button
+- Bottom: Evaluation results when available
+
+**Voice Integration:**
+- Clarification questions via voice during coding
+- AI announces evaluation results via voice
+- Follow-up questions about complexity and alternatives
+
+**Files involved:**
+- Frontend: `components/coding/` (5 components)
+- Backend: `services/coding/` (3 services)
+- Types: `lib/types/coding.ts`, `schemas/coding.py`
+
+See [Coding Challenge Documentation](./CODING_CHALLENGE.md) for implementation details.
+
+---
+
+### Interview Evaluation & Scoring
+
+**Status:** Complete
+
+Automated assessment and feedback after each interview round.
+
+**How it works:**
+1. After a round completes, client sends `request_evaluation` message
+2. Backend analyzes the full conversation transcript
+3. For coding rounds, submitted code is also evaluated
+4. LLM scores candidate on rubric criteria (0-100)
+5. Pass/fail determination (70+ = pass)
+6. Detailed feedback with strengths and areas for improvement
+
+**Rubrics by Round Type:**
+
+**Behavioral (Round 1):**
+| Criterion | Points | Description |
+|-----------|--------|-------------|
+| STAR Method Usage | 25 | Situation, Task, Action, Result structure |
+| Communication Skills | 25 | Clear and articulate responses |
+| Self-Awareness | 25 | Reflection and growth mindset |
+| Culture Fit | 25 | Teamwork and collaboration |
+
+**Coding (Round 2):**
+| Criterion | Points | Description |
+|-----------|--------|-------------|
+| Problem Understanding | 15 | Clarifies requirements, identifies edge cases |
+| Approach | 20 | Explains strategy before coding |
+| Code Correctness | 25 | Solution works correctly |
+| Complexity Analysis | 20 | Accurate time/space analysis |
+| Communication | 20 | Explains thought process |
+
+**System Design (Round 3):**
+| Criterion | Points | Description |
+|-----------|--------|-------------|
+| System Design | 40 | Architecture, scalability, trade-offs |
+| Coding Implementation | 35 | Problem understanding, solution correctness |
+| Communication | 25 | Clear articulation of ideas |
+
+**Files involved:**
+- Backend: `services/orchestrator/evaluator.py`
+- Frontend: `lib/rubricConfig.ts`
+
+---
+
 ## Partially Implemented Features
 
 ### Interview Types
@@ -173,13 +285,13 @@ Different interview formats for various purposes.
 
 | Type | Status | Description |
 |------|--------|-------------|
-| Behavioral | Working | STAR-format questions about past experiences |
+| Behavioral | Complete | STAR-format questions about past experiences |
 | Technical | Scaffolded | System design and problem-solving |
-| Coding | Scaffolded | Programming problems (needs sandbox) |
+| Coding | Complete | Real code editor with AI evaluation |
 
 **Current limitations:**
 - Technical interviews work but don't have specialized question banks
-- Coding interviews need code execution sandbox (planned)
+- Code execution sandbox planned for runtime testing (currently AI-evaluated only)
 
 ---
 
@@ -247,45 +359,28 @@ Store interviews, transcripts, and user data.
 
 ---
 
-### Interview Evaluation & Scoring
-
-**Priority:** Medium
-
-Automated assessment and feedback.
-
-**Planned capabilities:**
-- Rubric-based evaluation criteria
-- Communication skills assessment
-- Technical accuracy scoring
-- Strengths and improvement areas
-- Detailed feedback report
-
-**Technical approach:**
-- Post-interview LLM evaluation pass
-- Structured rubric definitions
-- Scoring algorithms
-- Report generation
-
----
-
 ### Code Execution Sandbox
 
 **Priority:** Medium
 
-Secure environment for running candidate code.
+Secure environment for running candidate code with actual test cases.
+
+**Note:** Code evaluation currently uses AI analysis. This feature would add actual code execution.
 
 **Planned capabilities:**
+- Actual code execution for submitted solutions
+- Automated test case validation
 - Support for multiple languages (Python, JavaScript, Java, etc.)
 - Safe execution with resource limits
-- Test case validation
-- Output comparison
-- Syntax highlighting in UI
+- Output comparison against expected results
+- Performance benchmarking
 
 **Technical approach:**
 - Docker-based isolation
 - Resource limits (CPU, memory, time)
 - Input/output streaming
 - Security hardening
+- Integration with existing code evaluation for hybrid scoring
 
 ---
 

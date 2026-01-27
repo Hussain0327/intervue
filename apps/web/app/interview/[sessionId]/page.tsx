@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Recorder } from "@/components/audio/Recorder";
-import { Player } from "@/components/audio/Player";
-import { Transcript, TranscriptEntry } from "@/components/interview/Transcript";
-import { createWSClient, InterviewState, WSClient } from "@/lib/wsClient";
+import { TranscriptEntry } from "@/components/interview/Transcript";
+import { createWSClient, InterviewState, WSClient, CodeEvaluationMessage, ProblemMessage } from "@/lib/wsClient";
 import { useInterviewProgress, INTERVIEW_ROUNDS, INTERVIEW_MODES, InterviewModeId } from "@/lib/useInterviewProgress";
+import { useInterviewNotes } from "@/lib/useInterviewNotes";
+import { InterviewLayout, LeftRail, CenterPanel, RightPanel } from "@/components/interview/layout";
+import { InterviewTab, LatencyStage, ParsedResumeContext, RoundStatus } from "@/lib/types/interview";
+import { CodingProblem, CodeEvaluationResult } from "@/lib/types/coding";
+import { CodingChallengeLayout } from "@/components/coding/CodingChallengeLayout";
 
 interface EvaluationResult {
   round: number;
@@ -20,6 +24,7 @@ export default function InterviewSession() {
   const router = useRouter();
   const sessionId = params.sessionId as string;
 
+  // Core interview state
   const [isConnected, setIsConnected] = useState(false);
   const [interviewState, setInterviewState] = useState<InterviewState>("ready");
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([]);
@@ -32,10 +37,25 @@ export default function InterviewSession() {
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
 
+  // New state for 3-column layout
+  const [activeTab, setActiveTab] = useState<InterviewTab>("transcript");
+  const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
+  const [latencyStage, setLatencyStage] = useState<LatencyStage>("idle");
+  const [resumeContext, setResumeContext] = useState<ParsedResumeContext | null>(null);
+  const [roundStatuses, setRoundStatuses] = useState<Record<number, RoundStatus>>({});
+
+  // Coding challenge state
+  const [codingProblem, setCodingProblem] = useState<CodingProblem | null>(null);
+  const [isProblemLoading, setIsProblemLoading] = useState(false);
+  const [codeEvaluationResult, setCodeEvaluationResult] = useState<CodeEvaluationResult | null>(null);
+  const [isCodeSubmitting, setIsCodeSubmitting] = useState(false);
+  const problemRequestedRef = useRef(false);
+
   const wsClientRef = useRef<WSClient | null>(null);
   const resumeSentRef = useRef(false);
 
-  const { updateRound, hasCompletedAllRounds, getNextAvailableRound } = useInterviewProgress();
+  const { updateRound, hasCompletedAllRounds, getNextAvailableRound, getProgress } = useInterviewProgress();
+  const { notes, updateNotes, addHighlight } = useInterviewNotes({ sessionId });
 
   // Get current round and mode from sessionStorage on mount
   useEffect(() => {
@@ -47,7 +67,53 @@ export default function InterviewSession() {
     if (storedMode && storedMode in INTERVIEW_MODES) {
       setInterviewMode(storedMode as InterviewModeId);
     }
-  }, []);
+    // Load resume context if available
+    const parsedResumeJson = sessionStorage.getItem("parsed_resume");
+    if (parsedResumeJson) {
+      try {
+        const parsed = JSON.parse(parsedResumeJson);
+        setResumeContext(parsed);
+      } catch (e) {
+        console.error("Failed to parse stored resume:", e);
+      }
+    }
+    // Load round statuses from progress
+    const progress = getProgress();
+    if (progress?.rounds) {
+      const statuses: Record<number, RoundStatus> = {};
+      Object.entries(progress.rounds).forEach(([roundNum, roundData]) => {
+        statuses[parseInt(roundNum)] = roundData.status;
+      });
+      setRoundStatuses(statuses);
+    }
+  }, [getProgress]);
+
+  // Extract current question from transcript
+  useEffect(() => {
+    const lastInterviewerEntry = transcriptEntries
+      .filter((e) => e.role === "interviewer")
+      .at(-1);
+    if (lastInterviewerEntry) {
+      setCurrentQuestion(lastInterviewerEntry.text);
+    }
+  }, [transcriptEntries]);
+
+  // Map interview state to latency stage
+  useEffect(() => {
+    switch (interviewState) {
+      case "processing_stt":
+        setLatencyStage("transcribing");
+        break;
+      case "generating":
+        setLatencyStage("generating");
+        break;
+      case "speaking":
+        setLatencyStage("speaking");
+        break;
+      default:
+        setLatencyStage("idle");
+    }
+  }, [interviewState]);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -122,9 +188,27 @@ export default function InterviewSession() {
         setEvaluationResult(result);
         // Update localStorage with result
         updateRound(round, { score, passed, feedback });
+        // Update local round statuses
+        setRoundStatuses((prev) => ({
+          ...prev,
+          [round]: passed ? "passed" : "failed",
+        }));
         // NOW end the session and close WebSocket (after evaluation is received)
         wsClientRef.current?.endSession();
         setSessionEnded(true);
+      },
+      onProblem: (problem) => {
+        setIsProblemLoading(false);
+        setCodingProblem(problem);
+      },
+      onCodeEvaluation: (result) => {
+        setIsCodeSubmitting(false);
+        setCodeEvaluationResult({
+          correct: result.correct,
+          score: result.score,
+          feedback: result.feedback,
+          analysis: result.analysis,
+        });
       },
     });
 
@@ -134,10 +218,11 @@ export default function InterviewSession() {
     return () => {
       client.disconnect();
     };
-  }, [sessionId, sessionEnded]);
+  }, [sessionId, sessionEnded, updateRound]);
 
   const handleRecordingComplete = useCallback((audioBase64: string, format: string) => {
     if (wsClientRef.current?.isConnected) {
+      setLatencyStage("uploading");
       wsClientRef.current.sendAudio(audioBase64, format);
     }
   }, []);
@@ -183,9 +268,39 @@ export default function InterviewSession() {
     router.push(`/interview/${newSessionId}`);
   }, [router, currentRound]);
 
+  // Handle code submission for coding challenges
+  const handleCodeSubmit = useCallback((code: string, language: string) => {
+    if (wsClientRef.current?.isConnected && codingProblem) {
+      setIsCodeSubmitting(true);
+      setCodeEvaluationResult(null);
+      wsClientRef.current.sendCodeSubmission(code, language, codingProblem.id);
+    }
+  }, [codingProblem]);
+
   // Get round and mode info
   const roundInfo = INTERVIEW_ROUNDS.find((r) => r.round === currentRound);
   const modeConfig = INTERVIEW_MODES[interviewMode];
+
+  // Request coding problem when round is coding and interview has started
+  useEffect(() => {
+    if (
+      roundInfo?.type === "coding" &&
+      isConnected &&
+      !problemRequestedRef.current &&
+      wsClientRef.current
+    ) {
+      // Small delay to ensure the interview has started
+      const timer = setTimeout(() => {
+        if (!problemRequestedRef.current && wsClientRef.current?.isConnected) {
+          problemRequestedRef.current = true;
+          setIsProblemLoading(true);
+          wsClientRef.current.requestProblem();
+        }
+      }, 2000); // Wait 2 seconds for interview intro to play first
+
+      return () => clearTimeout(timer);
+    }
+  }, [roundInfo?.type, isConnected]);
 
   const isRecordingDisabled =
     !isConnected ||
@@ -196,86 +311,116 @@ export default function InterviewSession() {
   const isProcessing =
     interviewState === "processing_stt" || interviewState === "generating";
 
+  // Derive interviewer role based on round
+  const interviewerRole = useMemo(() => {
+    switch (roundInfo?.type) {
+      case "behavioral":
+        return "Behavioral Interviewer";
+      case "coding":
+        return "Technical Interviewer";
+      case "system_design":
+        return "System Design Interviewer";
+      default:
+        return "Interviewer";
+    }
+  }, [roundInfo?.type]);
+
+  // Set current round as in_progress
+  useEffect(() => {
+    setRoundStatuses((prev) => ({
+      ...prev,
+      [currentRound]: prev[currentRound] || "in_progress",
+    }));
+  }, [currentRound]);
+
+  // Determine if we should show the coding challenge layout
+  const isCodingRound = roundInfo?.type === "coding";
+
+  // For coding rounds, show a different layout
+  if (isCodingRound && !sessionEnded) {
+    return (
+      <InterviewLayout
+        leftRail={
+          <LeftRail
+            interviewMode={interviewMode}
+            currentRound={currentRound}
+            roundStatuses={roundStatuses}
+            hasResumeContext={resumeContext !== null}
+            onEndSession={handleEndSession}
+            onExitInterview={handleReturnHome}
+            isSessionEnded={sessionEnded}
+            isEvaluating={isEvaluating}
+          />
+        }
+        centerPanel={
+          <CodingChallengeLayout
+            problem={codingProblem}
+            isProblemLoading={isProblemLoading}
+            onCodeSubmit={handleCodeSubmit}
+            isSubmitting={isCodeSubmitting}
+            evaluationResult={codeEvaluationResult}
+            interviewerName="Intervue Interviewer"
+            interviewerRole={interviewerRole}
+            currentQuestion={currentQuestion}
+            latencyStage={latencyStage}
+            isConnected={isConnected}
+            currentAudio={currentAudio}
+            audioFormat={audioFormat}
+            onPlaybackEnd={handlePlaybackEnd}
+            onRecordingComplete={handleRecordingComplete}
+            isRecordingDisabled={isRecordingDisabled}
+          />
+        }
+        rightPanel={
+          <RightPanel
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            transcriptEntries={transcriptEntries}
+            isProcessing={isProcessing}
+            notes={notes}
+            onNotesChange={updateNotes}
+            onAddHighlight={addHighlight}
+            roundType={roundInfo?.type || "behavioral"}
+            resumeContext={resumeContext}
+            evaluationScore={evaluationResult?.score}
+          />
+        }
+      />
+    );
+  }
+
   return (
-    <main className="min-h-screen flex flex-col bg-valtric-gradient">
-      {/* Header */}
-      <header className="border-b border-teal-200/50 bg-white/80 backdrop-blur-sm px-6 py-4 flex items-center justify-between sticky top-0 z-20">
-        <div className="flex items-center gap-3">
-          <ValtricLogo />
-          <div className="flex flex-col">
-            <span className="font-body font-semibold text-base text-teal-900">Valtric</span>
-            <span className="text-xs text-teal-500 -mt-0.5">AI for Everyone</span>
-          </div>
-        </div>
-
-        {/* Round indicator */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200">
-          {modeConfig.rounds.length > 1 ? (
-            <>
-              <span className="text-xs font-semibold text-teal-700">
-                Round {modeConfig.rounds.indexOf(currentRound as 1 | 2 | 3) + 1}/{modeConfig.rounds.length}
-              </span>
-              <span className="text-xs text-teal-500">
-                {roundInfo?.title || "Interview"}
-              </span>
-            </>
-          ) : (
-            <span className="text-xs font-semibold text-teal-700">
-              {modeConfig.title}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-6">
-          <StatusIndicator state={interviewState} isConnected={isConnected} isEvaluating={isEvaluating} />
-          {!sessionEnded && (
-            <button
-              onClick={handleEndSession}
-              disabled={isEvaluating}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                isEvaluating
-                  ? "text-gray-400 cursor-not-allowed"
-                  : "text-red-600 hover:text-red-700 hover:bg-red-50"
-              }`}
-            >
-              {isEvaluating ? "Evaluating..." : "End Session"}
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* Error banner */}
-      {error && (
-        <div className="bg-red-50 border-b border-red-200 px-6 py-3">
-          <p className="text-sm text-red-600 flex items-center gap-2">
-            <AlertIcon className="w-4 h-4" />
-            {error}
-          </p>
-        </div>
-      )}
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full">
-        {/* Transcript area */}
-        <div className="flex-1 min-h-0">
-          <Transcript entries={transcriptEntries} isProcessing={isProcessing} />
-        </div>
-
-        {/* Audio player */}
-        {currentAudio && (
-          <div className="px-6 py-4 border-t border-teal-200/50 bg-white/50 backdrop-blur-sm">
-            <Player
-              audioBase64={currentAudio}
-              format={audioFormat}
-              autoPlay={true}
-              onPlaybackEnd={handlePlaybackEnd}
+    <InterviewLayout
+      leftRail={
+        <LeftRail
+          interviewMode={interviewMode}
+          currentRound={currentRound}
+          roundStatuses={roundStatuses}
+          hasResumeContext={resumeContext !== null}
+          onEndSession={handleEndSession}
+          onExitInterview={handleReturnHome}
+          isSessionEnded={sessionEnded}
+          isEvaluating={isEvaluating}
+        />
+      }
+      centerPanel={
+        <CenterPanel
+          interviewerName="Intervue Interviewer"
+          interviewerRole={interviewerRole}
+          currentQuestion={currentQuestion}
+          latencyStage={latencyStage}
+          isConnected={isConnected}
+          interviewState={interviewState}
+          currentAudio={currentAudio}
+          audioFormat={audioFormat}
+          onPlaybackEnd={handlePlaybackEnd}
+          recorderElement={
+            <Recorder
+              onRecordingComplete={handleRecordingComplete}
+              disabled={isRecordingDisabled}
             />
-          </div>
-        )}
-
-        {/* Controls */}
-        <div className="border-t border-teal-200/50 bg-white p-8">
-          {sessionEnded ? (
+          }
+          sessionEndedElement={
             <SessionEndedCard
               onReturnHome={handleReturnHome}
               onContinue={handleContinueToNextRound}
@@ -286,81 +431,26 @@ export default function InterviewSession() {
               isEvaluating={isEvaluating}
               allRoundsPassed={hasCompletedAllRounds()}
             />
-          ) : (
-            <Recorder
-              onRecordingComplete={handleRecordingComplete}
-              disabled={isRecordingDisabled}
-            />
-          )}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function ValtricLogo() {
-  return (
-    <div className="w-9 h-9 rounded-xl bg-teal-700 flex items-center justify-center shadow-sm">
-      <span className="text-white font-display font-semibold text-lg">V</span>
-    </div>
-  );
-}
-
-function StatusIndicator({
-  state,
-  isConnected,
-  isEvaluating,
-}: {
-  state: InterviewState;
-  isConnected: boolean;
-  isEvaluating?: boolean;
-}) {
-  let statusText: string;
-  let statusColor: string;
-  let bgColor: string;
-
-  if (isEvaluating) {
-    statusText = "Evaluating";
-    statusColor = "bg-purple-500";
-    bgColor = "bg-purple-50";
-  } else if (!isConnected) {
-    statusText = "Connecting";
-    statusColor = "bg-amber-500";
-    bgColor = "bg-amber-50";
-  } else {
-    switch (state) {
-      case "ready":
-        statusText = "Ready";
-        statusColor = "bg-teal-500";
-        bgColor = "bg-teal-50";
-        break;
-      case "processing_stt":
-        statusText = "Listening";
-        statusColor = "bg-cyan-500";
-        bgColor = "bg-cyan-50";
-        break;
-      case "generating":
-        statusText = "Thinking";
-        statusColor = "bg-cyan-500";
-        bgColor = "bg-cyan-50";
-        break;
-      case "speaking":
-        statusText = "Speaking";
-        statusColor = "bg-teal-600";
-        bgColor = "bg-teal-50";
-        break;
-      default:
-        statusText = "Ready";
-        statusColor = "bg-teal-500";
-        bgColor = "bg-teal-50";
-    }
-  }
-
-  return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${bgColor}`}>
-      <span className={`w-2 h-2 rounded-full ${statusColor} animate-pulse`} />
-      <span className="text-sm font-mono font-medium text-teal-700">{statusText}</span>
-    </div>
+          }
+          isSessionEnded={sessionEnded}
+          error={error}
+        />
+      }
+      rightPanel={
+        <RightPanel
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          transcriptEntries={transcriptEntries}
+          isProcessing={isProcessing}
+          notes={notes}
+          onNotesChange={updateNotes}
+          onAddHighlight={addHighlight}
+          roundType={roundInfo?.type || "behavioral"}
+          resumeContext={resumeContext}
+          evaluationScore={evaluationResult?.score}
+        />
+      }
+    />
   );
 }
 
@@ -412,7 +502,7 @@ function SessionEndedCard({
           You've passed all interview rounds!
         </p>
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 max-w-md mx-auto">
-          <p className="text-green-700 font-medium">You got the job! 🚀</p>
+          <p className="text-green-700 font-medium">You got the job!</p>
         </div>
         <button
           onClick={onReturnHome}
@@ -535,24 +625,6 @@ function XIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
-}
-
-function AlertIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-      />
     </svg>
   );
 }

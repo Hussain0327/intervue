@@ -40,24 +40,29 @@ PASSING SCORE: 70/100""",
 
 Score the candidate on a scale of 0-100 based on these criteria:
 
-1. Problem Understanding (20 points)
+1. Problem Understanding (15 points)
    - Correctly understood the problem
    - Asked clarifying questions
    - Identified edge cases
 
-2. Approach & Algorithm (30 points)
+2. Approach & Strategy (20 points)
+   - Explained strategy before coding
    - Logical problem breakdown
    - Appropriate data structure selection
-   - Correct algorithm choice
 
-3. Complexity Analysis (25 points)
+3. Code Correctness (25 points)
+   - Solution actually works
+   - Handles edge cases correctly
+   - No logical errors or bugs
+
+4. Complexity Analysis (20 points)
    - Accurate time complexity analysis
    - Accurate space complexity analysis
    - Understands trade-offs
 
-4. Communication (25 points)
+5. Communication (20 points)
    - Clear explanation of thought process
-   - Articulates reasoning well
+   - Articulates reasoning while coding
    - Handles hints/feedback constructively
 
 PASSING SCORE: 70/100""",
@@ -106,9 +111,9 @@ RUBRIC:
 
 INTERVIEW TRANSCRIPT:
 {transcript}
-
+{code_section}
 EVALUATION INSTRUCTIONS:
-1. Carefully review the entire conversation
+1. Carefully review the entire conversation{code_instruction}
 2. Score each rubric criterion objectively
 3. Calculate the total score (0-100)
 4. Determine if the candidate passed (70+ = pass)
@@ -153,12 +158,29 @@ async def evaluate_interview(state: InterviewState) -> EvaluationResult:
             feedback="No interview content to evaluate. The interview appears to have ended without any meaningful conversation.",
         )
 
+    # Add code section for coding rounds
+    code_section = ""
+    code_instruction = ""
+    if current_round == 2 and state.submitted_code:
+        code_section = f"""
+
+SUBMITTED CODE ({state.submitted_language or 'unknown'}):
+```
+{state.submitted_code}
+```
+
+CODING PROBLEM: {state.current_problem.title if state.current_problem else 'Unknown'}
+"""
+        code_instruction = " and the submitted code"
+
     # Build evaluation prompt
     evaluation_prompt = EVALUATION_PROMPT_TEMPLATE.format(
         round_number=current_round,
         round_title=round_title,
         rubric=rubric,
         transcript=transcript,
+        code_section=code_section,
+        code_instruction=code_instruction,
     )
 
     # Get LLM client and generate evaluation

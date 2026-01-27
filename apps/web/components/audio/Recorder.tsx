@@ -8,6 +8,7 @@ export interface RecorderProps {
   onRecordingStart?: () => void;
   onRecordingStop?: () => void;
   disabled?: boolean;
+  variant?: "default" | "compact";
 }
 
 export type RecordingState = "idle" | "recording" | "processing";
@@ -17,6 +18,7 @@ export function Recorder({
   onRecordingStart,
   onRecordingStop,
   disabled = false,
+  variant = "default",
 }: RecorderProps) {
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +86,22 @@ export function Recorder({
     }
   }, []);
 
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      // Remove the onstop handler to prevent sending
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+
+      // Clean up stream
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      chunksRef.current = [];
+
+      setRecordingState("idle");
+      onRecordingStop?.();
+    }
+  }, [onRecordingStop]);
+
   const handleMouseDown = useCallback(() => {
     startRecording();
   }, [startRecording]);
@@ -107,6 +125,62 @@ export function Recorder({
     },
     [stopRecording]
   );
+
+  // Compact variant for coding challenge layout
+  if (variant === "compact") {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          disabled={disabled || recordingState === "processing"}
+          className={`
+            relative w-10 h-10 rounded-full flex items-center justify-center
+            transition-all duration-200 ease-out select-none
+            ${
+              recordingState === "recording"
+                ? "bg-red-500 animate-pulse"
+                : recordingState === "processing"
+                ? "bg-teal-400 cursor-wait"
+                : disabled
+                ? "bg-gray-200 cursor-not-allowed"
+                : "bg-teal-600 hover:bg-teal-700"
+            }
+          `}
+        >
+          {recordingState === "recording" ? (
+            <div className="flex items-center gap-0.5">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="w-0.5 bg-white rounded-full animate-waveform-bar"
+                  style={{ height: "12px", animationDelay: `${i * 0.15}s` }}
+                />
+              ))}
+            </div>
+          ) : recordingState === "processing" ? (
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <MicIconSmall disabled={disabled} />
+          )}
+        </button>
+        <span className="text-xs text-gray-500">
+          {recordingState === "recording"
+            ? "Release"
+            : recordingState === "processing"
+            ? "..."
+            : disabled
+            ? "Wait"
+            : "Hold"}
+        </span>
+        {error && <span className="text-xs text-red-500">{error}</span>}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-6">
@@ -196,16 +270,30 @@ export function Recorder({
         </button>
       </div>
 
-      {/* Status text */}
-      <p className="font-mono text-sm text-teal-600 tracking-wide">
-        {recordingState === "recording"
-          ? "Release to send"
-          : recordingState === "processing"
-          ? "Processing..."
-          : disabled
-          ? "Wait for interviewer"
-          : "Hold to speak"}
-      </p>
+      {/* Status text and secondary controls */}
+      <div className="flex flex-col items-center gap-2">
+        <p className="font-mono text-sm text-teal-600 tracking-wide">
+          {recordingState === "recording"
+            ? "Release to send"
+            : recordingState === "processing"
+            ? "Processing..."
+            : disabled
+            ? "Wait for interviewer"
+            : "Hold to speak"}
+        </p>
+
+        {/* Cancel button - only visible during recording */}
+        {recordingState === "recording" && (
+          <button
+            type="button"
+            onClick={cancelRecording}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-full transition-colors animate-fade-in-up"
+          >
+            <CancelIcon className="w-3.5 h-3.5" />
+            Cancel
+          </button>
+        )}
+      </div>
 
       {/* Error message */}
       {error && (
@@ -263,6 +351,32 @@ function ProcessingIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
+      />
+    </svg>
+  );
+}
+
+function CancelIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function MicIconSmall({ disabled }: { disabled: boolean }) {
+  return (
+    <svg
+      className={`w-5 h-5 ${disabled ? "text-gray-400" : "text-white"}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
       />
     </svg>
   );

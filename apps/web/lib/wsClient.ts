@@ -12,7 +12,9 @@ export type MessageType =
   | "error"
   | "session_started"
   | "session_ended"
-  | "evaluation";
+  | "evaluation"
+  | "problem"
+  | "code_evaluation";
 
 export interface StatusMessage {
   type: "status";
@@ -58,6 +60,39 @@ export interface EvaluationMessage {
   feedback: string;
 }
 
+export interface ProblemExample {
+  input: string;
+  output: string;
+  explanation?: string;
+}
+
+export interface ProblemMessage {
+  type: "problem";
+  problem: {
+    id: string;
+    title: string;
+    difficulty: "easy" | "medium" | "hard";
+    description: string;
+    examples: ProblemExample[];
+    constraints: string[];
+    starterCode: Record<string, string>;
+    tags: string[];
+  };
+}
+
+export interface CodeEvaluationMessage {
+  type: "code_evaluation";
+  correct: boolean;
+  score: number;
+  feedback: string;
+  analysis?: {
+    correctness: number;
+    edgeCaseHandling: number;
+    codeQuality: number;
+    complexity: number;
+  };
+}
+
 export type ServerMessage =
   | StatusMessage
   | TranscriptMessage
@@ -65,7 +100,9 @@ export type ServerMessage =
   | ErrorMessage
   | SessionStartedMessage
   | SessionEndedMessage
-  | EvaluationMessage;
+  | EvaluationMessage
+  | ProblemMessage
+  | CodeEvaluationMessage;
 
 export interface WSClientOptions {
   url: string;
@@ -77,6 +114,8 @@ export interface WSClientOptions {
   onSessionEnd?: (sessionId: string, totalTurns: number) => void;
   onConnectionChange?: (connected: boolean) => void;
   onEvaluation?: (round: number, score: number, passed: boolean, feedback: string) => void;
+  onProblem?: (problem: ProblemMessage["problem"]) => void;
+  onCodeEvaluation?: (result: CodeEvaluationMessage) => void;
 }
 
 export class WSClient {
@@ -144,6 +183,12 @@ export class WSClient {
         break;
       case "evaluation":
         this.options.onEvaluation?.(message.round, message.score, message.passed, message.feedback);
+        break;
+      case "problem":
+        this.options.onProblem?.(message.problem);
+        break;
+      case "code_evaluation":
+        this.options.onCodeEvaluation?.(message);
         break;
     }
   }
@@ -231,6 +276,31 @@ export class WSClient {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
 
     this.ws.send(JSON.stringify({ type: "end_session" }));
+  }
+
+  requestProblem(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
+      return;
+    }
+
+    this.ws.send(JSON.stringify({ type: "request_problem" }));
+  }
+
+  sendCodeSubmission(code: string, language: string, problemId: string): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "code_submission",
+        code,
+        language,
+        problem_id: problemId,
+      })
+    );
   }
 
   disconnect(): void {

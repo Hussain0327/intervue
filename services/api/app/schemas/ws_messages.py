@@ -115,3 +115,55 @@ class RequestEvaluationMessage(BaseModel):
     """Client requests evaluation of the interview round."""
 
     type: Literal["request_evaluation"] = "request_evaluation"
+
+
+# Coding challenge messages
+
+
+class RequestProblemMessage(BaseModel):
+    """Client requests a coding problem."""
+
+    type: Literal["request_problem"] = "request_problem"
+
+
+class CodeSubmissionMessage(BaseModel):
+    """Code submission from client."""
+
+    type: Literal["code_submission"] = "code_submission"
+    code: str
+    language: str
+    problem_id: str
+
+
+class ProblemExample(BaseModel):
+    """Example for a coding problem."""
+
+    input: str
+    output: str
+    explanation: str | None = None
+
+
+class ProblemMessage(BaseModel):
+    """Coding problem sent to client."""
+
+    type: Literal["problem"] = "problem"
+    problem: dict  # Contains id, title, difficulty, description, examples, constraints, starter_code, tags
+
+
+class CodeEvaluationAnalysis(BaseModel):
+    """Detailed analysis of code evaluation."""
+
+    correctness: int
+    edge_case_handling: int
+    code_quality: int
+    complexity: int
+
+
+class CodeEvaluationMessage(BaseModel):
+    """Code evaluation result sent to client."""
+
+    type: Literal["code_evaluation"] = "code_evaluation"
+    correct: bool
+    score: float
+    feedback: str
+    analysis: CodeEvaluationAnalysis | None = None

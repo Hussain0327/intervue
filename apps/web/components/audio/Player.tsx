@@ -10,6 +10,7 @@ export interface PlayerProps {
   onPlaybackStart?: () => void;
   onPlaybackEnd?: () => void;
   onError?: (error: string) => void;
+  variant?: "default" | "compact";
 }
 
 export type PlaybackState = "idle" | "playing" | "paused";
@@ -21,6 +22,7 @@ export function Player({
   onPlaybackStart,
   onPlaybackEnd,
   onError,
+  variant = "default",
 }: PlayerProps) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [progress, setProgress] = useState(0);
@@ -120,6 +122,33 @@ export function Player({
 
   if (!audioBase64) {
     return null;
+  }
+
+  // Compact variant for coding challenge layout
+  if (variant === "compact") {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 rounded-lg border border-teal-200">
+        <button
+          type="button"
+          onClick={handlePlayPause}
+          className="w-8 h-8 rounded-full bg-teal-600 hover:bg-teal-700 flex items-center justify-center transition-colors"
+        >
+          {playbackState === "playing" ? (
+            <PauseIcon className="w-3 h-3 text-white" />
+          ) : (
+            <PlayIcon className="w-3 h-3 text-white ml-0.5" />
+          )}
+        </button>
+        <div className="flex items-center gap-1">
+          {playbackState === "playing" && (
+            <SpeakerIcon className="w-4 h-4 text-teal-500 animate-pulse" />
+          )}
+          <span className="text-xs font-mono text-teal-600">
+            {formatTime(currentTime)}/{formatTime(duration)}
+          </span>
+        </div>
+      </div>
+    );
   }
 
   return (

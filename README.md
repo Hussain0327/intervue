@@ -15,6 +15,8 @@ Practice technical interviews with an AI interviewer that listens, responds, and
 - **AI interviewer** — Claude/GPT-4 powered responses with text-to-speech
 - **Resume upload** — PDF parsing with LLM-powered structured extraction for personalized interviews
 - **Interview modes** — Choose Full Interview, Behavioral Only, Coding Challenge, or System Design
+- **Coding challenges** — Monaco code editor with AI-powered evaluation, 19 LeetCode-style problems
+- **Smart problem selection** — Problems chosen based on resume skills and target role
 - **Round evaluation** — Get scored (0-100) after each round with pass/fail feedback
 - **Progress tracking** — Resume interrupted interviews, track completion across rounds
 - **Live transcript** — See the conversation as it happens
@@ -113,16 +115,19 @@ intervue/
 │       ├── app/             # App Router pages
 │       ├── components/      # React components
 │       │   ├── audio/       # Recorder, Player, VAD
+│       │   ├── coding/      # Code editor, problem panel
 │       │   └── interview/   # Transcript, controls
-│       └── lib/             # API client, WebSocket
+│       └── lib/             # API client, WebSocket, types
 │
 ├── services/
 │   ├── api/                 # FastAPI backend
 │   │   ├── app/
 │   │   │   ├── routers/     # HTTP + WebSocket endpoints
+│   │   │   ├── schemas/     # Pydantic models
 │   │   │   ├── services/    # Core business logic
 │   │   │   │   ├── llm/     # Claude/GPT client
 │   │   │   │   ├── speech/  # STT + TTS
+│   │   │   │   ├── coding/  # Problem bank, evaluator
 │   │   │   │   ├── orchestrator/  # Interview state
 │   │   │   │   └── resume/  # PDF parsing
 │   │   │   └── models/      # SQLAlchemy models
@@ -150,6 +155,7 @@ intervue/
 - **[API Reference](docs/API.md)** — REST endpoints and WebSocket protocol
 - **[Features](docs/FEATURES.md)** — Feature status and roadmap
 - **[AI Prompts](docs/AI_PROMPTS.md)** — Interviewer prompt system and customization
+- **[Coding Challenge](docs/CODING_CHALLENGE.md)** — Code editor feature implementation details
 
 ## License
 

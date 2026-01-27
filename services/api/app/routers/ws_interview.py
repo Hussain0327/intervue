@@ -4,17 +4,24 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.schemas.coding import CodeSubmission
 from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
     AudioResponseMessage,
+    CodeEvaluationAnalysis,
+    CodeEvaluationMessage,
     ErrorMessage,
     EvaluationMessage,
     InterviewState as WSState,
+    ProblemMessage,
     SessionEndedMessage,
     SessionStartedMessage,
     StatusMessage,
     TranscriptMessage,
 )
+from app.services.coding.code_evaluator import evaluate_code
+from app.services.coding.problem_bank import get_problem
+from app.services.coding.problem_selector import select_problem_for_candidate
 from app.services.orchestrator.evaluator import evaluate_interview
 from app.services.llm.client import get_llm_client
 from app.services.orchestrator.prompts import (
@@ -298,6 +305,121 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                             score=0,
                             passed=False,
                             feedback=f"Evaluation failed: {str(e)}",
+                        ),
+                    )
+
+                await send_message(websocket, StatusMessage(state=WSState.READY))
+
+            elif msg_type == "request_problem":
+                # Select and send a coding problem based on candidate's resume
+                logger.info(f"Problem requested for session {session_id}")
+
+                try:
+                    problem = select_problem_for_candidate(
+                        resume=state.parsed_resume,
+                        target_role=state.target_role,
+                    )
+                    state.current_problem = problem
+
+                    # Convert problem to dict for JSON serialization
+                    problem_dict = {
+                        "id": problem.id,
+                        "title": problem.title,
+                        "difficulty": problem.difficulty,
+                        "description": problem.description,
+                        "examples": [
+                            {"input": ex.input, "output": ex.output, "explanation": ex.explanation}
+                            for ex in problem.examples
+                        ],
+                        "constraints": problem.constraints,
+                        "starterCode": problem.starter_code,
+                        "tags": problem.tags,
+                    }
+
+                    await send_message(
+                        websocket,
+                        ProblemMessage(problem=problem_dict),
+                    )
+                    logger.info(f"Sent problem {problem.id} to session {session_id}")
+
+                except Exception as e:
+                    logger.exception(f"Failed to select problem for session {session_id}")
+                    await send_message(
+                        websocket,
+                        ErrorMessage(
+                            code="PROBLEM_SELECTION_ERROR",
+                            message=f"Failed to select a problem: {str(e)}",
+                            recoverable=True,
+                        ),
+                    )
+
+            elif msg_type == "code_submission":
+                # Evaluate submitted code
+                code = message.get("code", "")
+                language = message.get("language", "python")
+                problem_id = message.get("problem_id", "")
+
+                logger.info(f"Code submission for session {session_id}, problem {problem_id}")
+
+                if not state.current_problem:
+                    await send_message(
+                        websocket,
+                        ErrorMessage(
+                            code="NO_PROBLEM",
+                            message="No problem has been assigned yet",
+                            recoverable=True,
+                        ),
+                    )
+                    continue
+
+                # Store submission in state
+                state.submitted_code = code
+                state.submitted_language = language
+
+                await send_message(websocket, StatusMessage(state=WSState.GENERATING))
+
+                try:
+                    submission = CodeSubmission(
+                        problem_id=problem_id,
+                        code=code,
+                        language=language,
+                    )
+
+                    eval_result = await evaluate_code(state.current_problem, submission)
+
+                    # Build analysis if available
+                    analysis = None
+                    if eval_result.analysis:
+                        analysis = CodeEvaluationAnalysis(
+                            correctness=eval_result.analysis.correctness,
+                            edge_case_handling=eval_result.analysis.edge_case_handling,
+                            code_quality=eval_result.analysis.code_quality,
+                            complexity=eval_result.analysis.complexity,
+                        )
+
+                    await send_message(
+                        websocket,
+                        CodeEvaluationMessage(
+                            correct=eval_result.correct,
+                            score=eval_result.score,
+                            feedback=eval_result.feedback,
+                            analysis=analysis,
+                        ),
+                    )
+                    logger.info(
+                        f"Code evaluation for session {session_id}: "
+                        f"correct={eval_result.correct}, score={eval_result.score}"
+                    )
+
+                except Exception as e:
+                    logger.exception(f"Code evaluation error for session {session_id}")
+                    await send_message(
+                        websocket,
+                        CodeEvaluationMessage(
+                            correct=False,
+                            score=0,
+                            feedback=f"Evaluation failed: {str(e)}",
+                            analysis=None,
                         ),
                     )
 
