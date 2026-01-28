@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intervue-config
+  labels:
+    app: intervue
+data:
+  # CORS origins - comma-separated list
+  cors-origins: "https://intervue.example.com,https://www.intervue.example.com"
+  # API URL for frontend
+  api-url: "https://api.intervue.example.com"
+  # WebSocket URL for frontend
+  ws-url: "wss://api.intervue.example.com"
+---
+# Secrets template (create manually or via sealed-secrets)
+# Do NOT commit actual secrets to git
+#
+# kubectl create secret generic intervue-secrets \
+#   --from-literal=database-url='postgresql+asyncpg://user:pass@host:5432/db' \
+#   --from-literal=redis-url='redis://host:6379' \
+#   --from-literal=openai-api-key='sk-...' \
+#   --from-literal=anthropic-api-key='sk-ant-...' \
+#   -n intervue

@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
@@ -26,7 +27,10 @@ class OpenAITTS:
     """OpenAI text-to-speech client."""
 
     def __init__(self) -> None:
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=httpx.Timeout(settings.tts_timeout, connect=10.0),
+        )
         self.model = settings.tts_model
         self.default_voice: TTSVoice = settings.tts_voice  # type: ignore
 

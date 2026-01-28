@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import {
   CodingProblem,
   CodeEvaluationResult,
@@ -54,6 +54,13 @@ export function CodingChallengeLayout({
   const [code, setCode] = useState<string>("");
   const [language, setLanguage] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
 
+  // Initialize starter code when problem changes - moved to useEffect to prevent re-render loop
+  useEffect(() => {
+    if (problem && problem.starterCode[language] && !code) {
+      setCode(problem.starterCode[language]);
+    }
+  }, [problem, language, code]);
+
   // Update code when problem changes (load starter code)
   const handleLanguageChange = useCallback(
     (newLanguage: SupportedLanguage) => {
@@ -65,18 +72,6 @@ export function CodingChallengeLayout({
     },
     [problem]
   );
-
-  // Load starter code when problem is first received
-  const handleProblemLoaded = useCallback(() => {
-    if (problem?.starterCode[language]) {
-      setCode(problem.starterCode[language]);
-    }
-  }, [problem, language]);
-
-  // Initialize starter code when problem changes
-  if (problem && !code && problem.starterCode[language]) {
-    setCode(problem.starterCode[language]);
-  }
 
   const handleSubmit = useCallback(() => {
     if (code.trim()) {

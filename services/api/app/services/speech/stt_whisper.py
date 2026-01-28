@@ -2,6 +2,7 @@ import io
 import time
 from dataclasses import dataclass
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
@@ -22,7 +23,10 @@ class WhisperSTT:
     """OpenAI Whisper speech-to-text client."""
 
     def __init__(self) -> None:
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            timeout=httpx.Timeout(settings.stt_timeout, connect=10.0),
+        )
         self.model = settings.stt_model
 
     async def transcribe(

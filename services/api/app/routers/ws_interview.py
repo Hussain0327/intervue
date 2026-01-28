@@ -139,7 +139,7 @@ async def process_audio_turn(
             websocket,
             ErrorMessage(
                 code="PROCESSING_ERROR",
-                message=f"An error occurred: {str(e)}",
+                message="An error occurred while processing your audio. Please try again.",
                 recoverable=True,
             ),
         )
@@ -192,7 +192,7 @@ async def start_interview(websocket: WebSocket, session_id: str) -> None:
             websocket,
             ErrorMessage(
                 code="START_ERROR",
-                message=f"Failed to start interview: {str(e)}",
+                message="Failed to start interview. Please refresh and try again.",
                 recoverable=False,
             ),
         )
@@ -304,7 +304,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                             round=state.current_round,
                             score=0,
                             passed=False,
-                            feedback=f"Evaluation failed: {str(e)}",
+                            feedback="Evaluation could not be completed. Please try again.",
                         ),
                     )
 
@@ -348,7 +348,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                         websocket,
                         ErrorMessage(
                             code="PROBLEM_SELECTION_ERROR",
-                            message=f"Failed to select a problem: {str(e)}",
+                            message="Failed to select a coding problem. Please try again.",
                             recoverable=True,
                         ),
                     )
@@ -418,7 +418,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                         CodeEvaluationMessage(
                             correct=False,
                             score=0,
-                            feedback=f"Evaluation failed: {str(e)}",
+                            feedback="Code evaluation failed. Please check your code and try again.",
                             analysis=None,
                         ),
                     )
@@ -445,7 +445,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                 websocket,
                 ErrorMessage(
                     code="WEBSOCKET_ERROR",
-                    message=str(e),
+                    message="A connection error occurred. Please refresh and try again.",
                     recoverable=False,
                 ),
             )

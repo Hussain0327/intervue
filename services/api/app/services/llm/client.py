@@ -1,6 +1,9 @@
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Literal, TYPE_CHECKING
+
+import httpx
 
 from app.core.config import get_settings
 
@@ -44,17 +47,24 @@ class LLMClient:
         self.model = model or settings.llm_model
         self.max_tokens = settings.llm_max_tokens
         self.temperature = settings.llm_temperature
+        self.timeout = settings.llm_timeout
 
         self.anthropic: "AsyncAnthropic | None" = None
         self.openai: "AsyncOpenAI | None" = None
 
-        # Only import and initialize the client we need
+        # Only import and initialize the client we need with timeout
         if self.provider == "anthropic":
             from anthropic import AsyncAnthropic
-            self.anthropic = AsyncAnthropic(api_key=settings.anthropic_api_key)
+            self.anthropic = AsyncAnthropic(
+                api_key=settings.anthropic_api_key,
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+            )
         else:
             from openai import AsyncOpenAI
-            self.openai = AsyncOpenAI(api_key=settings.openai_api_key)
+            self.openai = AsyncOpenAI(
+                api_key=settings.openai_api_key,
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+            )
 
     async def generate(
         self,

@@ -32,6 +32,9 @@ dependencies = [
     "python-multipart>=0.0.6",
     "httpx>=0.26.0",
 
+    # Rate limiting
+    "slowapi>=0.1.9",
+
     # PDF processing
     "pdfplumber>=0.10.0",
 ]

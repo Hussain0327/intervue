@@ -135,8 +135,8 @@ export default function Home() {
       <div className="absolute top-1/2 left-1/3 w-64 h-64 bg-teal-400/5 rounded-full blur-3xl animate-float-particle stagger-4" />
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        {/* Header */}
-        <header className="px-6 py-5 flex items-center justify-between opacity-0 animate-fade-in-down">
+        {/* Header - visible immediately */}
+        <header className="px-6 py-5 flex items-center justify-between animate-fade-in-down">
           <div className="flex items-center gap-3">
             <ValtricLogo />
             <div className="flex flex-col">
@@ -156,23 +156,23 @@ export default function Home() {
         {/* Hero */}
         <div className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
           <div className="max-w-3xl text-center">
-            {/* Headline with serif font */}
+            {/* Headline with serif font - NO opacity-0 for instant LCP */}
             <h1 className="font-display font-semibold text-5xl md:text-6xl lg:text-7xl text-teal-950 leading-tight">
-              <span className="block opacity-0 animate-text-reveal">Practice Interviews</span>
-              <span className="block opacity-0 animate-text-reveal stagger-1">That Actually</span>
-              <span className="block opacity-0 animate-text-reveal stagger-2 text-teal-600">
+              <span className="block animate-text-reveal">Practice Interviews</span>
+              <span className="block animate-text-reveal stagger-1">That Actually</span>
+              <span className="block animate-text-reveal stagger-2 text-teal-600">
                 Feel Real.
               </span>
             </h1>
 
-            {/* Subtext */}
-            <p className="mt-8 text-lg md:text-xl text-teal-700 max-w-xl mx-auto opacity-0 animate-fade-in-up stagger-3">
+            {/* Subtext - visible immediately for better LCP */}
+            <p className="mt-8 text-lg md:text-xl text-teal-700 max-w-xl mx-auto animate-fade-in-up stagger-3">
               AI-powered voice interviews that adapt to your responses.
               Built for everyone, accessible to all.
             </p>
 
             {/* Role Selector */}
-            <div className="mt-10 opacity-0 animate-fade-in-up stagger-3">
+            <div className="mt-10 opacity-0 animate-fade-in-up-opacity stagger-3">
               <p className="text-sm text-teal-600 mb-4">Select your target role</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl mx-auto">
                 {CS_ROLES.map((role) => (
@@ -190,7 +190,7 @@ export default function Home() {
 
             {/* Mode Selector - only show if no existing progress */}
             {!hasExistingProgress() && (
-              <div className="mt-8 opacity-0 animate-fade-in-up stagger-3">
+              <div className="mt-8 opacity-0 animate-fade-in-up-opacity stagger-3">
                 <p className="text-sm text-teal-600 mb-4">Choose interview type</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl mx-auto">
                   {(Object.keys(INTERVIEW_MODES) as InterviewModeId[]).map((modeId) => {
@@ -213,14 +213,14 @@ export default function Home() {
 
             {/* Resume Upload - only show if no existing progress */}
             {!hasExistingProgress() && (
-              <div className="mt-8 opacity-0 animate-fade-in-up stagger-3">
+              <div className="mt-8 opacity-0 animate-fade-in-up-opacity stagger-3">
                 <ResumeUpload onResumeExtracted={handleResumeExtracted} />
               </div>
             )}
 
             {/* Progress Tracker - show if there's existing progress */}
             {isLoaded && hasExistingProgress() && (
-              <div className="mt-8 opacity-0 animate-fade-in-up stagger-3">
+              <div className="mt-8 opacity-0 animate-fade-in-up-opacity stagger-3">
                 <RoundProgressTracker
                   progress={progress}
                   allPassed={allPassed}
@@ -229,7 +229,7 @@ export default function Home() {
             )}
 
             {/* CTA */}
-            <div className="mt-8 flex flex-col items-center gap-4 opacity-0 animate-scale-in stagger-4">
+            <div className="mt-8 flex flex-col items-center gap-4 animate-scale-in stagger-4">
               {allPassed ? (
                 // All rounds passed - celebration!
                 <div className="text-center">
@@ -355,7 +355,7 @@ function FeatureCard({
   delay: string;
 }) {
   return (
-    <div className={`opacity-0 animate-fade-in-up ${delay}`}>
+    <div className={`animate-fade-in-up ${delay}`}>
       <div className="group p-6 rounded-2xl bg-white/70 hover:bg-white border border-teal-100 shadow-card hover:shadow-card-hover transition-all duration-300">
         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-100 to-teal-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
           {icon}
