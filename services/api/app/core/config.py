@@ -45,6 +45,23 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     llm_temperature: float = 0.7
 
+    # Streaming Pipeline Settings
+    streaming_enabled: bool = True
+    stt_provider: str = "deepgram"  # "deepgram" or "whisper"
+    tts_provider: str = "elevenlabs"  # "elevenlabs" or "openai"
+
+    # Deepgram Settings
+    deepgram_api_key: str = Field(default="")
+    deepgram_model: str = "nova-3"
+
+    # ElevenLabs Settings
+    elevenlabs_api_key: str = Field(default="")
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel voice
+    elevenlabs_model_id: str = "eleven_turbo_v2_5"
+
+    # Streaming Buffer Settings
+    streaming_sentence_min_chars: int = 20
+
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",

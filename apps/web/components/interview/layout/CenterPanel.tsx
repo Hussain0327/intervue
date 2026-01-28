@@ -22,6 +22,7 @@ interface CenterPanelProps {
   sessionEndedElement: ReactNode;
   isSessionEnded: boolean;
   error: string | null;
+  isLoading?: boolean;
 }
 
 export function CenterPanel({
@@ -38,6 +39,7 @@ export function CenterPanel({
   sessionEndedElement,
   isSessionEnded,
   error,
+  isLoading = false,
 }: CenterPanelProps) {
   return (
     <div className="flex flex-col h-full">
@@ -61,6 +63,7 @@ export function CenterPanel({
             currentQuestion={currentQuestion}
             isConnected={isConnected}
             interviewState={interviewState}
+            isLoading={isLoading}
           />
         </div>
 

@@ -8,7 +8,10 @@ export type InterviewState =
 export type MessageType =
   | "status"
   | "transcript"
+  | "transcript_delta"
   | "audio"
+  | "audio_chunk"
+  | "streaming_status"
   | "error"
   | "session_started"
   | "session_ended"
@@ -93,10 +96,38 @@ export interface CodeEvaluationMessage {
   };
 }
 
+// Streaming message types
+export interface TranscriptDeltaMessage {
+  type: "transcript_delta";
+  role: "candidate" | "interviewer";
+  delta: string;
+  is_final: boolean;
+  sequence: number;
+}
+
+export interface AudioChunkMessage {
+  type: "audio_chunk";
+  data: string; // Base64 encoded audio chunk
+  format: string;
+  sequence: number;
+  is_final: boolean;
+}
+
+export type StreamingStage = "transcribing" | "thinking" | "speaking";
+
+export interface StreamingStatusMessage {
+  type: "streaming_status";
+  stage: StreamingStage;
+  latency_ms?: number;
+}
+
 export type ServerMessage =
   | StatusMessage
   | TranscriptMessage
+  | TranscriptDeltaMessage
   | AudioMessage
+  | AudioChunkMessage
+  | StreamingStatusMessage
   | ErrorMessage
   | SessionStartedMessage
   | SessionEndedMessage
@@ -108,7 +139,10 @@ export interface WSClientOptions {
   url: string;
   onStatusChange?: (state: InterviewState) => void;
   onTranscript?: (role: "candidate" | "interviewer", text: string, sequence: number) => void;
+  onTranscriptDelta?: (role: "candidate" | "interviewer", delta: string, isFinal: boolean, sequence: number) => void;
   onAudio?: (audioBase64: string, format: string) => void;
+  onAudioChunk?: (audioBase64: string, format: string, sequence: number, isFinal: boolean) => void;
+  onStreamingStatus?: (stage: StreamingStage, latencyMs?: number) => void;
   onError?: (code: string, message: string, recoverable: boolean) => void;
   onSessionStart?: (sessionId: string) => void;
   onSessionEnd?: (sessionId: string, totalTurns: number) => void;
@@ -169,8 +203,17 @@ export class WSClient {
       case "transcript":
         this.options.onTranscript?.(message.role, message.text, message.sequence);
         break;
+      case "transcript_delta":
+        this.options.onTranscriptDelta?.(message.role, message.delta, message.is_final, message.sequence);
+        break;
       case "audio":
         this.options.onAudio?.(message.data, message.format);
+        break;
+      case "audio_chunk":
+        this.options.onAudioChunk?.(message.data, message.format, message.sequence, message.is_final);
+        break;
+      case "streaming_status":
+        this.options.onStreamingStatus?.(message.stage, message.latency_ms);
         break;
       case "error":
         this.options.onError?.(message.code, message.message, message.recoverable);

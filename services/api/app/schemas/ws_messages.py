@@ -167,3 +167,34 @@ class CodeEvaluationMessage(BaseModel):
     score: float
     feedback: str
     analysis: CodeEvaluationAnalysis | None = None
+
+
+# Streaming messages
+
+
+class TranscriptDeltaMessage(BaseModel):
+    """Incremental transcript update for streaming."""
+
+    type: Literal["transcript_delta"] = "transcript_delta"
+    role: Literal["candidate", "interviewer"]
+    delta: str
+    is_final: bool
+    sequence: int
+
+
+class AudioChunkMessage(BaseModel):
+    """Audio chunk for streaming playback."""
+
+    type: Literal["audio_chunk"] = "audio_chunk"
+    data: str  # Base64 encoded audio chunk
+    format: str = "mp3"
+    sequence: int
+    is_final: bool
+
+
+class StreamingStatusMessage(BaseModel):
+    """Status update during streaming processing."""
+
+    type: Literal["streaming_status"] = "streaming_status"
+    stage: Literal["transcribing", "thinking", "speaking"]
+    latency_ms: int | None = None

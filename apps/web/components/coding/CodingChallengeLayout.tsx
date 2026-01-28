@@ -79,6 +79,9 @@ export function CodingChallengeLayout({
     }
   }, [code, language, onCodeSubmit]);
 
+  // Show skeleton state while connecting
+  const isLoading = !isConnected;
+
   return (
     <div className="h-full flex flex-col gap-4">
       {/* Top section: Interviewer + Voice Controls (compact) */}
@@ -86,30 +89,43 @@ export function CodingChallengeLayout({
         <div className="flex items-start gap-4">
           {/* Compact Interviewer Info */}
           <div className="flex items-center gap-3 flex-1">
-            <div className="w-10 h-10 rounded-full bg-teal-600 flex items-center justify-center text-white font-semibold text-lg flex-shrink-0">
+            <div className={`w-10 h-10 rounded-full bg-teal-600 flex items-center justify-center text-white font-semibold text-lg flex-shrink-0 ${isLoading ? "animate-pulse" : ""}`}>
               {interviewerName.charAt(0)}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-900 truncate">
-                  {interviewerName}
-                </span>
+                {isLoading ? (
+                  <div className="h-4 w-32 bg-teal-100 rounded animate-pulse" />
+                ) : (
+                  <span className="font-medium text-gray-900 truncate">
+                    {interviewerName}
+                  </span>
+                )}
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    isConnected ? "bg-green-500" : "bg-red-500"
+                    isConnected ? "bg-green-500" : "bg-amber-500 animate-pulse"
                   }`}
                 />
               </div>
-              <p className="text-sm text-gray-500">{interviewerRole}</p>
+              {isLoading ? (
+                <div className="h-3 w-24 bg-teal-50 rounded animate-pulse mt-1" />
+              ) : (
+                <p className="text-sm text-gray-500">{interviewerRole}</p>
+              )}
             </div>
           </div>
 
           {/* Current question or status */}
           <div className="flex-1 min-w-0">
-            {currentQuestion && (
+            {isLoading ? (
+              <div className="flex items-center gap-2">
+                <ConnectingSpinner />
+                <span className="text-sm text-amber-600">Connecting...</span>
+              </div>
+            ) : currentQuestion ? (
               <p className="text-sm text-gray-700 line-clamp-2">{currentQuestion}</p>
-            )}
-            {latencyStage !== "idle" && (
+            ) : null}
+            {!isLoading && latencyStage !== "idle" && (
               <LatencyIndicator stage={latencyStage} variant="compact" />
             )}
           </div>
@@ -256,6 +272,19 @@ function XIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function ConnectingSpinner() {
+  return (
+    <svg className="w-4 h-4 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      />
     </svg>
   );
 }

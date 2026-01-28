@@ -7,6 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.schemas.coding import CodeSubmission
 from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
+    AudioChunkMessage,
     AudioResponseMessage,
     CodeEvaluationAnalysis,
     CodeEvaluationMessage,
@@ -17,6 +18,8 @@ from app.schemas.ws_messages import (
     SessionEndedMessage,
     SessionStartedMessage,
     StatusMessage,
+    StreamingStatusMessage,
+    TranscriptDeltaMessage,
     TranscriptMessage,
 )
 from app.services.coding.code_evaluator import evaluate_code
@@ -32,6 +35,8 @@ from app.services.orchestrator.prompts import (
 from app.services.orchestrator.state import SessionPhase, session_manager
 from app.services.speech.stt_whisper import get_stt_client
 from app.services.speech.tts_client import get_tts_client
+from app.services.orchestrator.streaming_pipeline import get_streaming_pipeline
+from app.services.speech.audio_utils import decode_base64_audio
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +145,195 @@ async def process_audio_turn(
             ErrorMessage(
                 code="PROCESSING_ERROR",
                 message="An error occurred while processing your audio. Please try again.",
+                recoverable=True,
+            ),
+        )
+        await send_message(websocket, StatusMessage(state=WSState.READY))
+
+
+async def process_audio_turn_streaming(
+    websocket: WebSocket,
+    session_id: str,
+    audio_data: str,
+    audio_format: str,
+) -> None:
+    """Process audio with streaming pipeline for low-latency response.
+
+    Uses the streaming pipeline to process audio with real-time
+    callbacks for transcript, LLM text, and audio chunks.
+    """
+    import base64
+
+    from app.core.config import get_settings
+
+    state = session_manager.get_session(session_id)
+    if not state:
+        await send_message(
+            websocket,
+            ErrorMessage(code="SESSION_NOT_FOUND", message="Session not found", recoverable=False),
+        )
+        return
+
+    settings = get_settings()
+    pipeline = get_streaming_pipeline()
+
+    # Track sequence numbers for streaming messages
+    transcript_seq = 0
+    audio_chunk_seq = 0
+    full_transcript = ""
+    full_response = ""
+
+    async def on_transcript(text: str, is_final: bool) -> None:
+        """Handle transcript updates from STT."""
+        nonlocal transcript_seq, full_transcript
+
+        if is_final:
+            full_transcript = text
+
+        await send_message(
+            websocket,
+            TranscriptDeltaMessage(
+                role="candidate",
+                delta=text if not is_final else "",
+                is_final=is_final,
+                sequence=transcript_seq,
+            ),
+        )
+        transcript_seq += 1
+
+        if is_final:
+            # Also send full transcript message for compatibility
+            seq = state.add_message("candidate", text)
+            await send_message(
+                websocket,
+                TranscriptMessage(role="candidate", text=text, sequence=seq),
+            )
+
+    async def on_llm_text(text: str) -> None:
+        """Handle LLM text chunks."""
+        nonlocal full_response
+
+        full_response += text
+
+        # Send text delta for real-time display
+        await send_message(
+            websocket,
+            TranscriptDeltaMessage(
+                role="interviewer",
+                delta=text,
+                is_final=False,
+                sequence=transcript_seq,
+            ),
+        )
+
+    async def on_audio_chunk(chunk: bytes, is_final: bool) -> None:
+        """Handle audio chunks from TTS."""
+        nonlocal audio_chunk_seq
+
+        if chunk:
+            audio_base64 = base64.b64encode(chunk).decode("utf-8")
+            await send_message(
+                websocket,
+                AudioChunkMessage(
+                    data=audio_base64,
+                    format="mp3",
+                    sequence=audio_chunk_seq,
+                    is_final=is_final,
+                ),
+            )
+            audio_chunk_seq += 1
+        elif is_final:
+            # Send empty final marker
+            await send_message(
+                websocket,
+                AudioChunkMessage(
+                    data="",
+                    format="mp3",
+                    sequence=audio_chunk_seq,
+                    is_final=True,
+                ),
+            )
+
+    try:
+        # Send streaming status
+        await send_message(
+            websocket,
+            StreamingStatusMessage(stage="transcribing"),
+        )
+
+        # Decode audio data
+        audio_bytes = decode_base64_audio(audio_data)
+
+        # Build prompts
+        system_prompt = get_system_prompt(state)
+        user_prompt = build_response_prompt(state, "")  # Transcript will be added by pipeline
+        messages = state.get_conversation_for_llm()
+
+        # Process with streaming pipeline
+        result = await pipeline.process_audio_streaming(
+            audio_data=audio_bytes,
+            messages=messages,
+            system_prompt=system_prompt + "\n\n" + user_prompt,
+            on_transcript=on_transcript,
+            on_llm_text=on_llm_text,
+            on_audio_chunk=on_audio_chunk,
+        )
+
+        if not result.transcript.strip():
+            await send_message(
+                websocket,
+                ErrorMessage(
+                    code="EMPTY_TRANSCRIPTION",
+                    message="Could not understand audio. Please try again.",
+                    recoverable=True,
+                ),
+            )
+            await send_message(websocket, StatusMessage(state=WSState.READY))
+            return
+
+        # Update state with final response
+        seq = state.add_message("interviewer", result.response_text)
+        state.questions_asked += 1
+
+        # Advance phase if needed
+        if state.phase == SessionPhase.INTRODUCTION:
+            state.advance_phase()
+        elif state.phase == SessionPhase.WARMUP:
+            state.advance_phase()
+        elif state.should_wrap_up() and state.phase != SessionPhase.WRAP_UP:
+            state.phase = SessionPhase.WRAP_UP
+
+        # Send final transcript for compatibility
+        await send_message(
+            websocket,
+            TranscriptDeltaMessage(
+                role="interviewer",
+                delta="",
+                is_final=True,
+                sequence=transcript_seq,
+            ),
+        )
+        await send_message(
+            websocket,
+            TranscriptMessage(role="interviewer", text=result.response_text, sequence=seq),
+        )
+
+        logger.info(
+            f"Streaming turn completed for {session_id}: "
+            f"stt={result.stt_latency_ms}ms, "
+            f"llm_first={result.llm_first_token_ms}ms, "
+            f"tts_first={result.tts_first_chunk_ms}ms, "
+            f"total={result.total_latency_ms}ms, "
+            f"chunks={result.audio_chunks_sent}"
+        )
+
+    except Exception as e:
+        logger.exception("Error in streaming audio turn")
+        await send_message(
+            websocket,
+            ErrorMessage(
+                code="STREAMING_ERROR",
+                message="An error occurred during streaming. Please try again.",
                 recoverable=True,
             ),
         )
@@ -263,12 +457,26 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
 
             elif msg_type == "audio":
                 # Process candidate audio
-                await process_audio_turn(
-                    websocket,
-                    session_id,
-                    message.get("data", ""),
-                    message.get("format", "webm"),
-                )
+                # Check if streaming is enabled
+                from app.core.config import get_settings
+                settings = get_settings()
+
+                if settings.streaming_enabled:
+                    # Use streaming pipeline for low-latency response
+                    await process_audio_turn_streaming(
+                        websocket,
+                        session_id,
+                        message.get("data", ""),
+                        message.get("format", "webm"),
+                    )
+                else:
+                    # Use batch processing
+                    await process_audio_turn(
+                        websocket,
+                        session_id,
+                        message.get("data", ""),
+                        message.get("format", "webm"),
+                    )
                 # Ready for next turn
                 await send_message(websocket, StatusMessage(state=WSState.READY))
 

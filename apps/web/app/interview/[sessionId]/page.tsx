@@ -26,6 +26,7 @@ export default function InterviewSession() {
 
   // Core interview state
   const [isConnected, setIsConnected] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [interviewState, setInterviewState] = useState<InterviewState>("ready");
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([]);
   const [currentAudio, setCurrentAudio] = useState<string | null>(null);
@@ -115,8 +116,13 @@ export default function InterviewSession() {
     }
   }, [interviewState]);
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection - deferred to allow first paint
   useEffect(() => {
+    // Defer WebSocket connection to after initial paint for better LCP
+    const timeoutId = setTimeout(() => {
+      setIsInitializing(false);
+    }, 0);
+
     const client = createWSClient(sessionId, {
       onConnectionChange: (connected) => {
         setIsConnected(connected);
@@ -213,9 +219,15 @@ export default function InterviewSession() {
     });
 
     wsClientRef.current = client;
-    client.connect();
+
+    // Connect after a microtask to let React render the skeleton first
+    const connectTimeoutId = setTimeout(() => {
+      client.connect();
+    }, 0);
 
     return () => {
+      clearTimeout(timeoutId);
+      clearTimeout(connectTimeoutId);
       client.disconnect();
     };
   }, [sessionId, sessionEnded, updateRound]);
@@ -434,6 +446,7 @@ export default function InterviewSession() {
           }
           isSessionEnded={sessionEnded}
           error={error}
+          isLoading={isInitializing || !isConnected}
         />
       }
       rightPanel={
