@@ -3,16 +3,24 @@
 #
 # Usage: Render Dashboard -> Blueprints -> New Blueprint Instance -> select this repo
 # Render auto-detects services, databases, and key-value stores from this file.
+#
+# NOTE: Free tier limitations:
+#   - Web services spin down after 15 min idle (~50s cold start)
+#   - WebSocket connections drop on spin-down
+#   - PostgreSQL expires after 90 days (1GB limit)
+#   - Redis has 25MB limit
+#   Upgrade to "standard" plan when ready for production use.
 
 services:
   # ── API (web service) ──────────────────────────────────────────────
   - type: web
     name: intervue-api
-    runtime: docker
+    runtime: python
     region: oregon
-    plan: standard
-    dockerfilePath: ./Dockerfile
-    dockerContext: ./services/api
+    plan: free
+    rootDir: ./services/api
+    buildCommand: pip install .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -50,11 +58,12 @@ services:
   # ── Worker (background service) ────────────────────────────────────
   - type: worker
     name: intervue-worker
-    runtime: docker
+    runtime: python
     region: oregon
-    plan: standard
-    dockerfilePath: ./Dockerfile
-    dockerContext: ./services/worker
+    plan: free
+    rootDir: ./services/worker
+    buildCommand: pip install .
+    startCommand: python -m worker.main
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -78,13 +87,13 @@ services:
   - type: keyvalue
     name: intervue-redis
     region: oregon
-    plan: standard
+    plan: free
     ipAllowList: []          # Internal access only
 
 # ── PostgreSQL ─────────────────────────────────────────────────────
 databases:
   - name: intervue-db
     region: oregon
-    plan: standard
+    plan: free
     databaseName: intervue
     ipAllowList: []            # Internal access only
