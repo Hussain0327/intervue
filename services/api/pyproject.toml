@@ -39,6 +39,9 @@ dependencies = [
     # Rate limiting
     "slowapi>=0.1.9",
 
+    # Authentication
+    "PyJWT>=2.8.0",
+
     # PDF processing
     "pdfplumber>=0.10.0",
 ]
@@ -66,7 +69,7 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
+select = ["E", "F", "I", "N", "W", "B", "C"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -4,13 +4,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Recorder } from "@/components/audio/Recorder";
 import { TranscriptEntry } from "@/components/interview/Transcript";
-import { createWSClient, InterviewState, WSClient, CodeEvaluationMessage, ProblemMessage } from "@/lib/wsClient";
+import { createWSClient, InterviewState, WSClient, CodeEvaluationMessage, ProblemMessage, StreamingStage } from "@/lib/wsClient";
+import { StreamingAudioPlayer } from "@/lib/audio/streamPlayer";
 import { useInterviewProgress, INTERVIEW_ROUNDS, INTERVIEW_MODES, InterviewModeId } from "@/lib/useInterviewProgress";
 import { useInterviewNotes } from "@/lib/useInterviewNotes";
 import { InterviewLayout, LeftRail, CenterPanel, RightPanel } from "@/components/interview/layout";
 import { InterviewTab, LatencyStage, ParsedResumeContext, RoundStatus } from "@/lib/types/interview";
 import { CodingProblem, CodeEvaluationResult } from "@/lib/types/coding";
 import { CodingChallengeLayout } from "@/components/coding/CodingChallengeLayout";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+// SessionStorage key constants
+const SK_CURRENT_ROUND = "current_round";
+const SK_INTERVIEW_MODE = "interview_mode";
+const SK_PARSED_RESUME = "parsed_resume";
+const SK_SELECTED_ROLE = "selected_role";
 
 interface EvaluationResult {
   round: number;
@@ -54,22 +62,24 @@ export default function InterviewSession() {
 
   const wsClientRef = useRef<WSClient | null>(null);
   const resumeSentRef = useRef(false);
+  const streamingPlayerRef = useRef<StreamingAudioPlayer | null>(null);
+  const streamingTranscriptRef = useRef<string>("");
 
   const { updateRound, hasCompletedAllRounds, getNextAvailableRound, getProgress } = useInterviewProgress();
   const { notes, updateNotes, addHighlight } = useInterviewNotes({ sessionId });
 
   // Get current round and mode from sessionStorage on mount
   useEffect(() => {
-    const storedRound = sessionStorage.getItem("current_round");
+    const storedRound = sessionStorage.getItem(SK_CURRENT_ROUND);
     if (storedRound) {
       setCurrentRound(parseInt(storedRound, 10));
     }
-    const storedMode = sessionStorage.getItem("interview_mode");
+    const storedMode = sessionStorage.getItem(SK_INTERVIEW_MODE);
     if (storedMode && storedMode in INTERVIEW_MODES) {
       setInterviewMode(storedMode as InterviewModeId);
     }
     // Load resume context if available
-    const parsedResumeJson = sessionStorage.getItem("parsed_resume");
+    const parsedResumeJson = sessionStorage.getItem(SK_PARSED_RESUME);
     if (parsedResumeJson) {
       try {
         const parsed = JSON.parse(parsedResumeJson);
@@ -136,10 +146,21 @@ export default function InterviewSession() {
         setInterviewState(state);
       },
       onTranscript: (role, text, sequence) => {
-        setTranscriptEntries((prev) => [
-          ...prev,
-          { role, text, sequence, timestamp: new Date() },
-        ]);
+        setTranscriptEntries((prev) => {
+          // If this is the final interviewer transcript, replace any streaming entry
+          if (role === "interviewer") {
+            const lastIdx = prev.length - 1;
+            if (lastIdx >= 0 && prev[lastIdx].role === "interviewer" && prev[lastIdx].streaming) {
+              const updated = [...prev];
+              updated[lastIdx] = { role, text, sequence, timestamp: new Date() };
+              return updated;
+            }
+          }
+          return [
+            ...prev,
+            { role, text, sequence, timestamp: new Date() },
+          ];
+        });
       },
       onAudio: (audioBase64, format) => {
         setCurrentAudio(audioBase64);
@@ -156,7 +177,7 @@ export default function InterviewSession() {
         // Send resume context if available, then signal ready to start
         if (!resumeSentRef.current && wsClientRef.current) {
           resumeSentRef.current = true;
-          const parsedResumeJson = sessionStorage.getItem("parsed_resume");
+          const parsedResumeJson = sessionStorage.getItem(SK_PARSED_RESUME);
           if (parsedResumeJson) {
             try {
               const parsedResume = JSON.parse(parsedResumeJson);
@@ -165,20 +186,20 @@ export default function InterviewSession() {
               console.error("Failed to parse stored resume:", e);
             }
             // Clear from sessionStorage after sending
-            sessionStorage.removeItem("parsed_resume");
+            sessionStorage.removeItem(SK_PARSED_RESUME);
           }
           // Get selected role from sessionStorage
-          const selectedRole = sessionStorage.getItem("selected_role") || undefined;
+          const selectedRole = sessionStorage.getItem(SK_SELECTED_ROLE) || undefined;
           if (selectedRole) {
-            sessionStorage.removeItem("selected_role");
+            sessionStorage.removeItem(SK_SELECTED_ROLE);
           }
           // Get current round from sessionStorage
-          const storedRound = sessionStorage.getItem("current_round");
+          const storedRound = sessionStorage.getItem(SK_CURRENT_ROUND);
           const round = storedRound ? parseInt(storedRound, 10) : 1;
           // Get interview mode from sessionStorage
-          const interviewMode = sessionStorage.getItem("interview_mode") || undefined;
+          const interviewMode = sessionStorage.getItem(SK_INTERVIEW_MODE) || undefined;
           if (interviewMode) {
-            sessionStorage.removeItem("interview_mode");
+            sessionStorage.removeItem(SK_INTERVIEW_MODE);
           }
           // Signal the backend to start the interview with role, round, and mode
           wsClientRef.current.sendStartInterview(selectedRole, round, interviewMode);
@@ -216,6 +237,61 @@ export default function InterviewSession() {
           analysis: result.analysis,
         });
       },
+      // Streaming callbacks
+      onTranscriptDelta: (role, delta, isFinal, sequence) => {
+        if (role === "interviewer") {
+          if (isFinal) {
+            // Finalize the streaming entry — the batch onTranscript will add the full entry
+            streamingTranscriptRef.current = "";
+          } else {
+            // Accumulate delta into a streaming transcript entry
+            streamingTranscriptRef.current += delta;
+            const streamingText = streamingTranscriptRef.current;
+            setTranscriptEntries((prev) => {
+              // Sequence guard: only update if incoming sequence >= current
+              const lastIdx = prev.length - 1;
+              if (lastIdx >= 0 && prev[lastIdx].role === "interviewer" && prev[lastIdx].streaming) {
+                if (sequence < prev[lastIdx].sequence) {
+                  return prev; // Out-of-order delta, skip
+                }
+                const updated = [...prev];
+                updated[lastIdx] = { ...updated[lastIdx], text: streamingText, sequence };
+                return updated;
+              }
+              return [
+                ...prev,
+                { role: "interviewer", text: streamingText, sequence, timestamp: new Date(), streaming: true },
+              ];
+            });
+          }
+        }
+        // Candidate deltas are handled by the batch onTranscript for simplicity
+      },
+      onAudioChunk: (audioBase64, format, sequence, isFinal) => {
+        // Lazily create the streaming audio player
+        if (!streamingPlayerRef.current) {
+          streamingPlayerRef.current = new StreamingAudioPlayer({
+            onPlaybackEnd: () => {
+              setCurrentAudio(null);
+              wsClientRef.current?.sendPlaybackComplete();
+              streamingPlayerRef.current = null;
+            },
+            onError: (error) => {
+              console.error("Streaming audio playback error:", error);
+            },
+          });
+        }
+        streamingPlayerRef.current.addChunk(audioBase64, isFinal, sequence, format);
+      },
+      onStreamingStatus: (stage, _latencyMs) => {
+        // Map streaming stages to latency stage state
+        const stageMap: Record<StreamingStage, LatencyStage> = {
+          transcribing: "transcribing",
+          thinking: "generating",
+          speaking: "speaking",
+        };
+        setLatencyStage(stageMap[stage] || "idle");
+      },
     });
 
     wsClientRef.current = client;
@@ -229,6 +305,8 @@ export default function InterviewSession() {
       clearTimeout(timeoutId);
       clearTimeout(connectTimeoutId);
       client.disconnect();
+      streamingPlayerRef.current?.destroy();
+      streamingPlayerRef.current = null;
     };
   }, [sessionId, sessionEnded, updateRound]);
 
@@ -265,7 +343,7 @@ export default function InterviewSession() {
     // Get next round and store it
     const nextRound = getNextAvailableRound();
     if (nextRound) {
-      sessionStorage.setItem("current_round", String(nextRound));
+      sessionStorage.setItem(SK_CURRENT_ROUND, String(nextRound));
     }
     // Generate new session ID and navigate
     const newSessionId = crypto.randomUUID();
@@ -274,7 +352,7 @@ export default function InterviewSession() {
 
   const handleTryAgain = useCallback(() => {
     // Keep the same round and try again
-    sessionStorage.setItem("current_round", String(currentRound));
+    sessionStorage.setItem(SK_CURRENT_ROUND, String(currentRound));
     // Generate new session ID and navigate
     const newSessionId = crypto.randomUUID();
     router.push(`/interview/${newSessionId}`);
@@ -351,6 +429,7 @@ export default function InterviewSession() {
   // For coding rounds, show a different layout
   if (isCodingRound && !sessionEnded) {
     return (
+      <ErrorBoundary>
       <InterviewLayout
         leftRail={
           <LeftRail
@@ -398,10 +477,12 @@ export default function InterviewSession() {
           />
         }
       />
+      </ErrorBoundary>
     );
   }
 
   return (
+    <ErrorBoundary>
     <InterviewLayout
       leftRail={
         <LeftRail
@@ -464,6 +545,7 @@ export default function InterviewSession() {
         />
       }
     />
+    </ErrorBoundary>
   );
 }
 

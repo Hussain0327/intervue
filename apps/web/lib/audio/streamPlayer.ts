@@ -7,6 +7,8 @@
 
 import { base64ToBlob } from "./encode";
 
+const MAX_QUEUE_SIZE = 100;
+
 export interface StreamingAudioPlayerOptions {
   /** Called when playback starts */
   onPlaybackStart?: () => void;
@@ -113,6 +115,14 @@ export class StreamingAudioPlayer {
 
       if (isFinal) {
         this.hasReceivedFinal = true;
+      }
+
+      // Cap queue size to prevent unbounded memory growth
+      if (this.chunkQueue.length > MAX_QUEUE_SIZE) {
+        console.warn(
+          `StreamingAudioPlayer: queue exceeded ${MAX_QUEUE_SIZE} chunks, trimming to latest ${MAX_QUEUE_SIZE}`
+        );
+        this.chunkQueue = this.chunkQueue.slice(-MAX_QUEUE_SIZE);
       }
 
       // Start playback if not already playing

@@ -1,12 +1,13 @@
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from sqlalchemy import text
 
 from app.core.config import get_settings
 
@@ -23,6 +24,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan events."""
     # Startup
     logger.info("Starting Intervue API...")
+
+    # Pre-initialize service clients so first request isn't slow
+    try:
+        from app.services.llm.client import get_llm_client
+        get_llm_client()
+        logger.info("LLM client initialized")
+    except Exception:
+        logger.warning("Failed to pre-initialize LLM client", exc_info=True)
+
+    try:
+        from app.services.speech.stt_whisper import get_stt_client
+        get_stt_client()
+        logger.info("STT client initialized")
+    except Exception:
+        logger.warning("Failed to pre-initialize STT client", exc_info=True)
+
+    try:
+        from app.services.speech.tts_client import get_tts_client
+        get_tts_client()
+        logger.info("TTS client initialized")
+    except Exception:
+        logger.warning("Failed to pre-initialize TTS client", exc_info=True)
+
     yield
     # Shutdown
     logger.info("Shutting down Intervue API...")
@@ -46,8 +70,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 
@@ -63,9 +87,36 @@ async def health_check() -> dict[str, str]:
 
 @app.get("/ready")
 async def readiness_check() -> dict[str, str]:
-    """Readiness check for Kubernetes."""
-    # TODO: Add database and Redis connectivity checks
-    return {"status": "ready"}
+    """Readiness check with actual service connectivity."""
+    status = "ready"
+    services: dict[str, str] = {}
+
+    # Check database connectivity
+    try:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        await engine.dispose()
+        services["database"] = "ok"
+    except Exception as e:
+        logger.warning("Database readiness check failed: %s", e)
+        services["database"] = "unavailable"
+        status = "degraded"
+
+    # Check Redis connectivity
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(settings.redis_url)
+        await r.ping()
+        await r.aclose()
+        services["redis"] = "ok"
+    except Exception as e:
+        logger.warning("Redis readiness check failed: %s", e)
+        services["redis"] = "unavailable"
+        status = "degraded"
+
+    return {"status": status, **services}
 
 
 # Include routers

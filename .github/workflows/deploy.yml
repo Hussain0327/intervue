@@ -1,188 +1,59 @@
-name: Deploy
+name: Post-Deploy Smoke Test
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Deployment environment'
+      api_url:
+        description: "Base URL of the deployed API"
         required: true
-        default: 'staging'
-        type: choice
-        options:
-          - staging
-          - production
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+        default: "https://intervue-api.onrender.com"
 
 jobs:
-  build-and-push:
-    name: Build and Push Images
+  smoke-test:
+    name: Smoke Test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    outputs:
-      api_image: ${{ steps.meta-api.outputs.tags }}
-      worker_image: ${{ steps.meta-worker.outputs.tags }}
-
+    env:
+      API_URL: ${{ inputs.api_url }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract API metadata
-        id: meta-api
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api
-          tags: |
-            type=sha,prefix=
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-
-      - name: Extract Worker metadata
-        id: meta-worker
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/worker
-          tags: |
-            type=sha,prefix=
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-
-      - name: Build and push API image
-        uses: docker/build-push-action@v6
-        with:
-          context: services/api
-          push: true
-          tags: ${{ steps.meta-api.outputs.tags }}
-          labels: ${{ steps.meta-api.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push Worker image
-        uses: docker/build-push-action@v6
-        with:
-          context: services/worker
-          push: true
-          tags: ${{ steps.meta-worker.outputs.tags }}
-          labels: ${{ steps.meta-worker.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
-    environment:
-      name: staging
-      url: https://staging.intervue.example.com
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Configure kubectl
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG_STAGING }}
+      - name: Health check
         run: |
-          mkdir -p ~/.kube
-          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+          echo "Checking $API_URL/health ..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "Health check passed (200)"
 
-      - name: Deploy to Kubernetes
-        env:
-          API_IMAGE: ${{ needs.build-and-push.outputs.api_image }}
-          WORKER_IMAGE: ${{ needs.build-and-push.outputs.worker_image }}
+      - name: Readiness check
         run: |
-          cd infra/k8s
+          echo "Checking $API_URL/ready ..."
+          BODY=$(curl -sf "$API_URL/ready")
+          echo "$BODY"
+          echo "$BODY" | grep -q '"status":"ready"' || {
+            echo "Readiness check failed"
+            exit 1
+          }
+          echo "Readiness check passed"
 
-          # Apply namespace and config
-          kubectl apply -f namespace.yaml || true
-
-          # Update API deployment
-          kubectl set image deployment/intervue-api \
-            api="$API_IMAGE" \
-            -n intervue-staging || \
-          kubectl apply -f api.yaml -n intervue-staging
-
-          # Update Worker deployment
-          kubectl set image deployment/intervue-worker \
-            worker="$WORKER_IMAGE" \
-            -n intervue-staging || \
-          kubectl apply -f worker.yaml -n intervue-staging
-
-          # Wait for rollout
-          kubectl rollout status deployment/intervue-api -n intervue-staging --timeout=300s
-          kubectl rollout status deployment/intervue-worker -n intervue-staging --timeout=300s
-
-      - name: Run smoke tests
+      - name: CORS preflight
         run: |
-          # Wait for service to be ready
-          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS \
+            -H "Origin: https://intervue.vercel.app" \
+            -H "Access-Control-Request-Method: POST" \
+            "$API_URL/health")
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "204" ]; then
+            echo "CORS preflight failed with status $STATUS"
+            exit 1
+          fi
+          echo "CORS preflight passed ($STATUS)"
 
-          # Health check
-          curl -f https://staging-api.intervue.example.com/health || exit 1
-
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-staging]
-    if: github.event.inputs.environment == 'production'
-    environment:
-      name: production
-      url: https://intervue.example.com
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Configure kubectl
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+      - name: Auth enforcement
         run: |
-          mkdir -p ~/.kube
-          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
-
-      - name: Deploy to Kubernetes
-        env:
-          API_IMAGE: ${{ needs.build-and-push.outputs.api_image }}
-          WORKER_IMAGE: ${{ needs.build-and-push.outputs.worker_image }}
-        run: |
-          cd infra/k8s
-
-          # Update API deployment
-          kubectl set image deployment/intervue-api \
-            api="$API_IMAGE" \
-            -n intervue-production
-
-          # Update Worker deployment
-          kubectl set image deployment/intervue-worker \
-            worker="$WORKER_IMAGE" \
-            -n intervue-production
-
-          # Wait for rollout
-          kubectl rollout status deployment/intervue-api -n intervue-production --timeout=300s
-          kubectl rollout status deployment/intervue-worker -n intervue-production --timeout=300s
-
-      - name: Run smoke tests
-        run: |
-          sleep 30
-          curl -f https://api.intervue.example.com/health || exit 1
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "$API_URL/resume/parse")
+          if [ "$STATUS" != "401" ] && [ "$STATUS" != "403" ]; then
+            echo "Expected 401/403 but got $STATUS — auth may not be enforced"
+            exit 1
+          fi
+          echo "Auth enforcement passed ($STATUS)"

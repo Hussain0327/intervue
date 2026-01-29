@@ -1,9 +1,12 @@
 import json
 import logging
+import uuid as uuid_mod
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from pydantic import ValidationError
 
+from app.core.security import verify_token
 from app.schemas.coding import CodeSubmission
 from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
@@ -13,7 +16,6 @@ from app.schemas.ws_messages import (
     CodeEvaluationMessage,
     ErrorMessage,
     EvaluationMessage,
-    InterviewState as WSState,
     ProblemMessage,
     SessionEndedMessage,
     SessionStartedMessage,
@@ -22,25 +24,63 @@ from app.schemas.ws_messages import (
     TranscriptDeltaMessage,
     TranscriptMessage,
 )
+from app.schemas.ws_messages import (
+    InterviewState as WSState,
+)
 from app.services.coding.code_evaluator import evaluate_code
-from app.services.coding.problem_bank import get_problem
 from app.services.coding.problem_selector import select_problem_for_candidate
-from app.services.orchestrator.evaluator import evaluate_interview
 from app.services.llm.client import get_llm_client
+from app.services.orchestrator.evaluator import evaluate_interview
 from app.services.orchestrator.prompts import (
     build_initial_prompt,
     build_response_prompt,
     get_system_prompt,
 )
 from app.services.orchestrator.state import SessionPhase, session_manager
-from app.services.speech.stt_whisper import get_stt_client
-from app.services.speech.tts_client import get_tts_client
 from app.services.orchestrator.streaming_pipeline import get_streaming_pipeline
 from app.services.speech.audio_utils import decode_base64_audio
+from app.services.speech.stt_whisper import get_stt_client
+from app.services.speech.tts_client import get_tts_client
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# --- Constants ---
+MAX_AUDIO_DATA_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_CODE_LENGTH = 50_000
+ALLOWED_LANGUAGES = {
+    "python", "javascript", "typescript", "java", "c", "cpp", "c++",
+    "csharp", "c#", "go", "rust", "ruby", "swift", "kotlin", "scala",
+    "php", "r", "sql",
+}
+
+
+# --- Helpers ---
+
+def _validate_session_id(session_id: str) -> bool:
+    """Validate that session_id is a valid UUID."""
+    try:
+        uuid_mod.UUID(session_id)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+async def _ws_error_response(
+    websocket: WebSocket,
+    code: str,
+    message: str,
+    recoverable: bool = True,
+    set_ready: bool = True,
+) -> None:
+    """Send an error message and optionally set status to READY."""
+    await send_message(
+        websocket,
+        ErrorMessage(code=code, message=message, recoverable=recoverable),
+    )
+    if set_ready:
+        await send_message(websocket, StatusMessage(state=WSState.READY))
 
 
 async def send_message(websocket: WebSocket, message: Any) -> None:
@@ -57,9 +97,9 @@ async def process_audio_turn(
     """Process a complete audio turn from the candidate."""
     state = session_manager.get_session(session_id)
     if not state:
-        await send_message(
-            websocket,
-            ErrorMessage(code="SESSION_NOT_FOUND", message="Session not found", recoverable=False),
+        await _ws_error_response(
+            websocket, "SESSION_NOT_FOUND", "Session not found",
+            recoverable=False, set_ready=False,
         )
         return
 
@@ -75,15 +115,11 @@ async def process_audio_turn(
         candidate_text = stt_result.text
 
         if not candidate_text.strip():
-            await send_message(
+            await _ws_error_response(
                 websocket,
-                ErrorMessage(
-                    code="EMPTY_TRANSCRIPTION",
-                    message="Could not understand audio. Please try again.",
-                    recoverable=True,
-                ),
+                "EMPTY_TRANSCRIPTION",
+                "Could not understand audio. Please try again.",
             )
-            await send_message(websocket, StatusMessage(state=WSState.READY))
             return
 
         # Send candidate transcript
@@ -138,17 +174,20 @@ async def process_audio_turn(
             AudioResponseMessage(data=tts_result.audio_base64, format=tts_result.format),
         )
 
-    except Exception as e:
-        logger.exception("Error processing audio turn")
-        await send_message(
+    except (ConnectionError, TimeoutError) as e:
+        logger.error("Network error processing audio turn: %s", e)
+        await _ws_error_response(
             websocket,
-            ErrorMessage(
-                code="PROCESSING_ERROR",
-                message="An error occurred while processing your audio. Please try again.",
-                recoverable=True,
-            ),
+            "PROCESSING_ERROR",
+            "A network error occurred while processing your audio. Please try again.",
         )
-        await send_message(websocket, StatusMessage(state=WSState.READY))
+    except Exception:
+        logger.exception("Error processing audio turn")
+        await _ws_error_response(
+            websocket,
+            "PROCESSING_ERROR",
+            "An error occurred while processing your audio. Please try again.",
+        )
 
 
 async def process_audio_turn_streaming(
@@ -164,17 +203,14 @@ async def process_audio_turn_streaming(
     """
     import base64
 
-    from app.core.config import get_settings
-
     state = session_manager.get_session(session_id)
     if not state:
-        await send_message(
-            websocket,
-            ErrorMessage(code="SESSION_NOT_FOUND", message="Session not found", recoverable=False),
+        await _ws_error_response(
+            websocket, "SESSION_NOT_FOUND", "Session not found",
+            recoverable=False, set_ready=False,
         )
         return
 
-    settings = get_settings()
     pipeline = get_streaming_pipeline()
 
     # Track sequence numbers for streaming messages
@@ -264,31 +300,28 @@ async def process_audio_turn_streaming(
         # Decode audio data
         audio_bytes = decode_base64_audio(audio_data)
 
-        # Build prompts
-        system_prompt = get_system_prompt(state)
-        user_prompt = build_response_prompt(state, "")  # Transcript will be added by pipeline
+        # Build prompt callback - called after STT produces the transcript
         messages = state.get_conversation_for_llm()
+
+        def build_prompt(transcript: str) -> str:
+            return get_system_prompt(state) + "\n\n" + build_response_prompt(state, transcript)
 
         # Process with streaming pipeline
         result = await pipeline.process_audio_streaming(
             audio_data=audio_bytes,
             messages=messages,
-            system_prompt=system_prompt + "\n\n" + user_prompt,
+            build_system_prompt=build_prompt,
             on_transcript=on_transcript,
             on_llm_text=on_llm_text,
             on_audio_chunk=on_audio_chunk,
         )
 
         if not result.transcript.strip():
-            await send_message(
+            await _ws_error_response(
                 websocket,
-                ErrorMessage(
-                    code="EMPTY_TRANSCRIPTION",
-                    message="Could not understand audio. Please try again.",
-                    recoverable=True,
-                ),
+                "EMPTY_TRANSCRIPTION",
+                "Could not understand audio. Please try again.",
             )
-            await send_message(websocket, StatusMessage(state=WSState.READY))
             return
 
         # Update state with final response
@@ -327,17 +360,20 @@ async def process_audio_turn_streaming(
             f"chunks={result.audio_chunks_sent}"
         )
 
-    except Exception as e:
-        logger.exception("Error in streaming audio turn")
-        await send_message(
+    except (ConnectionError, TimeoutError) as e:
+        logger.error("Network error in streaming audio turn: %s", e)
+        await _ws_error_response(
             websocket,
-            ErrorMessage(
-                code="STREAMING_ERROR",
-                message="An error occurred during streaming. Please try again.",
-                recoverable=True,
-            ),
+            "STREAMING_ERROR",
+            "A network error occurred during streaming. Please try again.",
         )
-        await send_message(websocket, StatusMessage(state=WSState.READY))
+    except Exception:
+        logger.exception("Error in streaming audio turn")
+        await _ws_error_response(
+            websocket,
+            "STREAMING_ERROR",
+            "An error occurred during streaming. Please try again.",
+        )
 
 
 async def start_interview(websocket: WebSocket, session_id: str) -> None:
@@ -380,27 +416,73 @@ async def start_interview(websocket: WebSocket, session_id: str) -> None:
             AudioResponseMessage(data=tts_result.audio_base64, format=tts_result.format),
         )
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error starting interview")
-        await send_message(
+        await _ws_error_response(
             websocket,
-            ErrorMessage(
-                code="START_ERROR",
-                message="Failed to start interview. Please refresh and try again.",
-                recoverable=False,
-            ),
+            "START_ERROR",
+            "Failed to start interview. Please refresh and try again.",
+            recoverable=False,
+            set_ready=False,
         )
 
 
 @router.websocket("/ws/interview/{session_id}")
-async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
-    """WebSocket endpoint for voice interview sessions."""
+async def websocket_interview(
+    websocket: WebSocket,
+    session_id: str,
+    token: str = Query(default=""),
+) -> None:
+    """WebSocket endpoint for voice interview sessions.
+
+    Requires a valid JWT passed as a `token` query parameter:
+        ws://host/ws/interview/{session_id}?token=<jwt>
+    """
     await websocket.accept()
+
+    # --- Authenticate ---
+    if not token:
+        await _ws_error_response(
+            websocket,
+            "AUTH_REQUIRED",
+            "Authentication token is required. Pass ?token=<jwt> in the URL.",
+            recoverable=False,
+            set_ready=False,
+        )
+        await websocket.close(code=1008)
+        return
+
+    try:
+        user = verify_token(token)
+        logger.info("WebSocket authenticated: user=%s session=%s", user.sub, session_id)
+    except Exception as exc:
+        logger.warning("WebSocket auth failed for session %s: %s", session_id, exc)
+        await _ws_error_response(
+            websocket,
+            "AUTH_FAILED",
+            "Invalid or expired authentication token.",
+            recoverable=False,
+            set_ready=False,
+        )
+        await websocket.close(code=1008)
+        return
+
+    # Validate session ID is a UUID
+    if not _validate_session_id(session_id):
+        await _ws_error_response(
+            websocket,
+            "INVALID_SESSION_ID",
+            "Session ID must be a valid UUID.",
+            recoverable=False,
+            set_ready=False,
+        )
+        await websocket.close(code=1008)
+        return
 
     # Create or get session
     state = session_manager.get_session(session_id)
     if not state:
-        state = session_manager.create_session(session_id)
+        state = await session_manager.create_session(session_id)
 
     logger.info(f"Interview session started: {session_id}")
 
@@ -427,10 +509,15 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                             f"Parsed resume received for session: {session_id}, "
                             f"candidate: {state.parsed_resume.contact.name}"
                         )
-                    except Exception as e:
+                    except (ValueError, ValidationError) as e:
                         logger.warning(f"Failed to parse resume data: {e}")
                         # Fall back to raw text if available
                         if "raw_text" in parsed_resume_data:
+                            state.resume_context = parsed_resume_data["raw_text"]
+                    except Exception as e:
+                        logger.warning("Unexpected error parsing resume: %s", e)
+                        is_dict = isinstance(parsed_resume_data, dict)
+                        if is_dict and "raw_text" in parsed_resume_data:
                             state.resume_context = parsed_resume_data["raw_text"]
 
             elif msg_type == "start_interview":
@@ -451,12 +538,21 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                     interview_mode = message.get("mode")
                     if interview_mode and state:
                         state.interview_mode = interview_mode
-                        logger.info(f"Interview mode set for session {session_id}: {interview_mode}")
+                        logger.info("Interview mode set for %s: %s", session_id, interview_mode)
                     await start_interview(websocket, session_id)
                     await send_message(websocket, StatusMessage(state=WSState.READY))
 
             elif msg_type == "audio":
-                # Process candidate audio
+                # Validate audio data size
+                audio_data = message.get("data", "")
+                if len(audio_data) > MAX_AUDIO_DATA_BYTES:
+                    await _ws_error_response(
+                        websocket,
+                        "AUDIO_TOO_LARGE",
+                        f"Audio data exceeds {MAX_AUDIO_DATA_BYTES // (1024 * 1024)}MB limit.",
+                    )
+                    continue
+
                 # Check if streaming is enabled
                 from app.core.config import get_settings
                 settings = get_settings()
@@ -466,7 +562,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                     await process_audio_turn_streaming(
                         websocket,
                         session_id,
-                        message.get("data", ""),
+                        audio_data,
                         message.get("format", "webm"),
                     )
                 else:
@@ -474,7 +570,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                     await process_audio_turn(
                         websocket,
                         session_id,
-                        message.get("data", ""),
+                        audio_data,
                         message.get("format", "webm"),
                     )
                 # Ready for next turn
@@ -504,7 +600,7 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                         f"Evaluation sent for session {session_id}: "
                         f"round={evaluation_result.round}, score={evaluation_result.score}"
                     )
-                except Exception as e:
+                except Exception:
                     logger.exception(f"Evaluation error for session {session_id}")
                     await send_message(
                         websocket,
@@ -550,33 +646,43 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                     )
                     logger.info(f"Sent problem {problem.id} to session {session_id}")
 
-                except Exception as e:
+                except Exception:
                     logger.exception(f"Failed to select problem for session {session_id}")
-                    await send_message(
+                    await _ws_error_response(
                         websocket,
-                        ErrorMessage(
-                            code="PROBLEM_SELECTION_ERROR",
-                            message="Failed to select a coding problem. Please try again.",
-                            recoverable=True,
-                        ),
+                        "PROBLEM_SELECTION_ERROR",
+                        "Failed to select a coding problem. Please try again.",
                     )
 
             elif msg_type == "code_submission":
-                # Evaluate submitted code
+                # Validate code submission
                 code = message.get("code", "")
                 language = message.get("language", "python")
                 problem_id = message.get("problem_id", "")
 
+                if len(code) > MAX_CODE_LENGTH:
+                    await _ws_error_response(
+                        websocket,
+                        "CODE_TOO_LARGE",
+                        f"Code exceeds maximum length of {MAX_CODE_LENGTH} characters.",
+                    )
+                    continue
+
+                if language.lower() not in ALLOWED_LANGUAGES:
+                    await _ws_error_response(
+                        websocket,
+                        "INVALID_LANGUAGE",
+                        f"Language '{language}' is not supported.",
+                    )
+                    continue
+
                 logger.info(f"Code submission for session {session_id}, problem {problem_id}")
 
                 if not state.current_problem:
-                    await send_message(
+                    await _ws_error_response(
                         websocket,
-                        ErrorMessage(
-                            code="NO_PROBLEM",
-                            message="No problem has been assigned yet",
-                            recoverable=True,
-                        ),
+                        "NO_PROBLEM",
+                        "No problem has been assigned yet",
                     )
                     continue
 
@@ -619,14 +725,14 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
                         f"correct={eval_result.correct}, score={eval_result.score}"
                     )
 
-                except Exception as e:
+                except Exception:
                     logger.exception(f"Code evaluation error for session {session_id}")
                     await send_message(
                         websocket,
                         CodeEvaluationMessage(
                             correct=False,
                             score=0,
-                            feedback="Code evaluation failed. Please check your code and try again.",
+                            feedback="Code evaluation failed. Check your code and try again.",
                             analysis=None,
                         ),
                     )
@@ -646,19 +752,20 @@ async def websocket_interview(websocket: WebSocket, session_id: str) -> None:
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {session_id}")
-    except Exception as e:
+    except Exception:
         logger.exception(f"WebSocket error: {session_id}")
         try:
-            await send_message(
+            await _ws_error_response(
                 websocket,
-                ErrorMessage(
-                    code="WEBSOCKET_ERROR",
-                    message="A connection error occurred. Please refresh and try again.",
-                    recoverable=False,
-                ),
+                "WEBSOCKET_ERROR",
+                "A connection error occurred. Please refresh and try again.",
+                recoverable=False,
+                set_ready=False,
             )
         except Exception:
-            pass
+            logger.debug(
+                "Failed to send error on closing WebSocket: %s", session_id,
+            )
     finally:
-        session_manager.remove_session(session_id)
+        await session_manager.remove_session(session_id)
         logger.info(f"Interview session ended: {session_id}")

@@ -1,0 +1,76 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: intervue-ingress
+  labels:
+    app: intervue
+  annotations:
+    # Nginx Ingress controller
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    # Request size (for resume uploads)
+    nginx.ingress.kubernetes.io/proxy-body-size: "12m"
+    # cert-manager for automated TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - intervue.app
+        - www.intervue.app
+        - api.intervue.app
+      secretName: intervue-tls
+  rules:
+    - host: intervue.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: intervue-web
+                port:
+                  number: 80
+    - host: www.intervue.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: intervue-web
+                port:
+                  number: 80
+    - host: api.intervue.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: intervue-api
+                port:
+                  number: 80
+---
+# cert-manager ClusterIssuer for Let's Encrypt
+# Prerequisite: cert-manager must be installed in the cluster
+# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Replace with your ops email
+    email: ops@intervue.app
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

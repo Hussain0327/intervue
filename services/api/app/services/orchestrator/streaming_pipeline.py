@@ -104,7 +104,7 @@ class StreamingPipeline:
         self,
         audio_data: bytes,
         messages: list[LLMMessage],
-        system_prompt: str,
+        build_system_prompt: Callable[[str], str],
         on_transcript: Callable[[str, bool], Awaitable[None]],
         on_llm_text: Callable[[str], Awaitable[None]],
         on_audio_chunk: Callable[[bytes, bool], Awaitable[None]],
@@ -117,7 +117,7 @@ class StreamingPipeline:
         Args:
             audio_data: Raw audio bytes from user
             messages: Conversation history for LLM context
-            system_prompt: System prompt for LLM
+            build_system_prompt: Callback that takes transcript text and returns the full system prompt
             on_transcript: Callback for transcript updates (text, is_final)
             on_llm_text: Callback for LLM text chunks
             on_audio_chunk: Callback for audio chunks (data, is_final)
@@ -165,6 +165,10 @@ class StreamingPipeline:
                 tts_first_chunk_ms=0,
                 audio_chunks_sent=0,
             )
+
+        # Build system prompt now that we have the actual transcript
+        system_prompt = build_system_prompt(transcript)
+        logger.debug("Built system prompt with transcript: %s...", transcript[:80])
 
         # Step 2 & 3: Stream LLM → TTS in parallel
         llm_start = time.perf_counter()

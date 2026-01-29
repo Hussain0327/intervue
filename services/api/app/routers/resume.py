@@ -2,8 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
+from app.core.deps import get_current_user
+from app.core.security import AuthenticatedUser
 from app.schemas.resume import ParsedResume
 from app.services.resume.parser import ResumeParser
 
@@ -16,7 +18,10 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 
 @router.post("/parse", response_model=ParsedResume)
-async def parse_resume(file: UploadFile) -> ParsedResume:
+async def parse_resume(
+    file: UploadFile,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ParsedResume:
     """Parse a PDF resume and extract structured data.
 
     Accepts a PDF file upload and returns structured resume data

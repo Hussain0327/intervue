@@ -131,6 +131,7 @@ export function Player({
         <button
           type="button"
           onClick={handlePlayPause}
+          aria-label={playbackState === "playing" ? "Pause audio playback" : "Play audio"}
           className="w-8 h-8 rounded-full bg-teal-600 hover:bg-teal-700 flex items-center justify-center transition-colors"
         >
           {playbackState === "playing" ? (
@@ -157,6 +158,7 @@ export function Player({
       <button
         type="button"
         onClick={handlePlayPause}
+        aria-label={playbackState === "playing" ? "Pause audio playback" : "Play audio"}
         className="w-10 h-10 rounded-full bg-teal-700 hover:bg-teal-600 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 shadow-md"
       >
         {playbackState === "playing" ? (

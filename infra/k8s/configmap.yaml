@@ -6,11 +6,11 @@ metadata:
     app: intervue
 data:
   # CORS origins - comma-separated list
-  cors-origins: "https://intervue.example.com,https://www.intervue.example.com"
+  cors-origins: "https://intervue.app,https://www.intervue.app"
   # API URL for frontend
-  api-url: "https://api.intervue.example.com"
+  api-url: "https://api.intervue.app"
   # WebSocket URL for frontend
-  ws-url: "wss://api.intervue.example.com"
+  ws-url: "wss://api.intervue.app"
 ---
 # Secrets template (create manually or via sealed-secrets)
 # Do NOT commit actual secrets to git
@@ -20,4 +20,7 @@ data:
 #   --from-literal=redis-url='redis://host:6379' \
 #   --from-literal=openai-api-key='sk-...' \
 #   --from-literal=anthropic-api-key='sk-ant-...' \
+#   --from-literal=deepgram-api-key='...' \
+#   --from-literal=elevenlabs-api-key='...' \
+#   --from-literal=jwt-secret='<generate-with: openssl rand -base64 48>' \
 #   -n intervue

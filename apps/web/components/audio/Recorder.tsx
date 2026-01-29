@@ -138,6 +138,13 @@ export function Recorder({
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           disabled={disabled || recordingState === "processing"}
+          aria-label={
+            recordingState === "recording"
+              ? "Release to stop recording"
+              : recordingState === "processing"
+              ? "Processing audio"
+              : "Hold to start recording"
+          }
           className={`
             relative w-10 h-10 rounded-full flex items-center justify-center
             transition-all duration-200 ease-out select-none
@@ -237,6 +244,15 @@ export function Recorder({
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           disabled={disabled || recordingState === "processing"}
+          aria-label={
+            recordingState === "recording"
+              ? "Release to stop recording"
+              : recordingState === "processing"
+              ? "Processing audio"
+              : disabled
+              ? "Recording disabled, wait for interviewer"
+              : "Hold to start recording"
+          }
           className={`
             relative w-[120px] h-[120px] rounded-full flex items-center justify-center
             transition-all duration-200 ease-out select-none

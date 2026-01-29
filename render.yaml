@@ -1,0 +1,90 @@
+# Render Blueprint — Intervue backend infrastructure
+# https://docs.render.com/blueprint-spec
+#
+# Usage: Render Dashboard -> Blueprints -> New Blueprint Instance -> select this repo
+# Render auto-detects services, databases, and key-value stores from this file.
+
+services:
+  # ── API (web service) ──────────────────────────────────────────────
+  - type: web
+    name: intervue-api
+    runtime: docker
+    region: oregon
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./services/api
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: intervue-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: intervue-redis
+          type: keyvalue
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: "https://intervue.vercel.app"
+      - key: DEBUG
+        value: "false"
+      - key: STREAMING_ENABLED
+        value: "true"
+      - key: STT_PROVIDER
+        value: deepgram
+      - key: TTS_PROVIDER
+        value: elevenlabs
+      - key: LLM_PROVIDER
+        value: anthropic
+
+  # ── Worker (background service) ────────────────────────────────────
+  - type: worker
+    name: intervue-worker
+    runtime: docker
+    region: oregon
+    plan: standard
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./services/worker
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: intervue-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: intervue-redis
+          type: keyvalue
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+  # ── Redis (key-value store) ────────────────────────────────────────
+  - type: keyvalue
+    name: intervue-redis
+    region: oregon
+    plan: standard
+    ipAllowList: []          # Internal access only
+
+# ── PostgreSQL ─────────────────────────────────────────────────────
+databases:
+  - name: intervue-db
+    region: oregon
+    plan: standard
+    databaseName: intervue
+    ipAllowList: []            # Internal access only

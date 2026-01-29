@@ -44,6 +44,21 @@ spec:
                 secretKeyRef:
                   name: intervue-secrets
                   key: anthropic-api-key
+            - name: DEEPGRAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: intervue-secrets
+                  key: deepgram-api-key
+            - name: ELEVENLABS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: intervue-secrets
+                  key: elevenlabs-api-key
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: intervue-secrets
+                  key: jwt-secret
             - name: CORS_ORIGINS
               valueFrom:
                 configMapKeyRef:

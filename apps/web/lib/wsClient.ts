@@ -135,6 +135,31 @@ export type ServerMessage =
   | ProblemMessage
   | CodeEvaluationMessage;
 
+const VALID_MESSAGE_TYPES = new Set<string>([
+  "status",
+  "transcript",
+  "transcript_delta",
+  "audio",
+  "audio_chunk",
+  "streaming_status",
+  "error",
+  "session_started",
+  "session_ended",
+  "evaluation",
+  "problem",
+  "code_evaluation",
+]);
+
+function isServerMessage(data: unknown): data is ServerMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "type" in data &&
+    typeof (data as Record<string, unknown>).type === "string" &&
+    VALID_MESSAGE_TYPES.has((data as Record<string, unknown>).type as string)
+  );
+}
+
 export interface WSClientOptions {
   url: string;
   onStatusChange?: (state: InterviewState) => void;
@@ -187,10 +212,15 @@ export class WSClient {
 
     this.ws.onmessage = (event) => {
       try {
-        const message: ServerMessage = JSON.parse(event.data);
-        this.handleMessage(message);
+        const parsed: unknown = JSON.parse(event.data);
+        if (!isServerMessage(parsed)) {
+          console.warn("Received unknown or malformed WebSocket message:", parsed);
+          return;
+        }
+        this.handleMessage(parsed);
       } catch (error) {
-        console.error("Failed to parse message:", error);
+        console.error("Failed to parse WebSocket message:", error);
+        this.options.onError?.("PARSE_ERROR", "Failed to parse server message", true);
       }
     };
   }
@@ -360,6 +390,9 @@ export class WSClient {
 
 export function createWSClient(sessionId: string, options: Omit<WSClientOptions, "url">): WSClient {
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+  if (!process.env.NEXT_PUBLIC_WS_URL && typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    console.warn("NEXT_PUBLIC_WS_URL is not set and hostname is not localhost — WebSocket may fail to connect.");
+  }
   return new WSClient({
     url: `${wsUrl}/ws/interview/${sessionId}`,
     ...options,

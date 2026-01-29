@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 
 export interface TranscriptEntry {
   role: "candidate" | "interviewer";
   text: string;
   sequence: number;
   timestamp?: Date;
+  /** True while this entry is being streamed (not yet finalized). */
+  streaming?: boolean;
 }
 
 export interface TranscriptProps {
@@ -30,6 +32,9 @@ export function Transcript({ entries, isProcessing = false }: TranscriptProps) {
   return (
     <div
       ref={containerRef}
+      role="log"
+      aria-live="polite"
+      aria-label="Interview transcript"
       className="flex flex-col gap-4 h-full overflow-y-auto p-6 custom-scrollbar"
     >
       {entries.length === 0 && !isProcessing && (
@@ -63,7 +68,7 @@ function EmptyState() {
   );
 }
 
-function TranscriptBubble({
+const TranscriptBubble = memo(function TranscriptBubble({
   entry,
   isLatest,
 }: {
@@ -134,7 +139,7 @@ function TranscriptBubble({
       </div>
     </div>
   );
-}
+});
 
 function InterviewerAvatar() {
   return (

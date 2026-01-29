@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from app.core.config import get_settings
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
     from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 LLMProvider = Literal["anthropic", "openai"]
 
@@ -244,6 +247,13 @@ class LLMClient:
                 yield chunk.choices[0].delta.content
 
 
+_llm_client: LLMClient | None = None
+
+
 def get_llm_client() -> LLMClient:
-    """Create a new LLM client (not cached to respect config changes)."""
-    return LLMClient()
+    """Get or create a cached LLM client instance."""
+    global _llm_client
+    if _llm_client is None:
+        logger.info("Creating LLM client")
+        _llm_client = LLMClient()
+    return _llm_client

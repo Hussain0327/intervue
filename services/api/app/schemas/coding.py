@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Example(BaseModel):
@@ -37,10 +37,10 @@ class CodeSubmission(BaseModel):
 class CodeEvaluationAnalysis(BaseModel):
     """Detailed analysis of code evaluation."""
 
-    correctness: int  # 0-100
-    edge_case_handling: int  # 0-100
-    code_quality: int  # 0-100
-    complexity: int  # 0-100
+    correctness: int = Field(ge=0, le=100)
+    edge_case_handling: int = Field(ge=0, le=100)
+    code_quality: int = Field(ge=0, le=100)
+    complexity: int = Field(ge=0, le=100)
 
 
 class CodeEvaluationResult(BaseModel):
