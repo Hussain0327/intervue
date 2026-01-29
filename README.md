@@ -24,14 +24,14 @@ Practice technical interviews with an AI interviewer that listens, responds, and
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS |
-| Backend | FastAPI, Python 3.11+, WebSocket |
-| Speech | OpenAI Whisper (STT), OpenAI TTS |
-| AI | Claude (Anthropic), GPT-4 (OpenAI) |
-| Database | PostgreSQL 16, Redis 7 |
-| Infrastructure | Docker, pnpm, Turborepo |
+| Layer          | Technology                                     |
+| -------------- | ---------------------------------------------- |
+| Frontend       | Next.js 14, React 18, TypeScript, Tailwind CSS |
+| Backend        | FastAPI, Python 3.11+, WebSocket               |
+| Speech         | OpenAI Whisper (STT), OpenAI TTS               |
+| AI             | Claude (Anthropic), GPT-4 (OpenAI)             |
+| Database       | PostgreSQL 16, Redis 7                         |
+| Infrastructure | Docker, pnpm, Turborepo                        |
 
 ## Quick Start
 
@@ -48,7 +48,7 @@ Practice technical interviews with an AI interviewer that listens, responds, and
 
 ```bash
 # Clone and enter the directory
-git clone https://github.com/your-org/intervue.git
+git clone https://github.com/Hussain0327/intervue.git
 cd intervue
 
 # Run setup (creates .env, starts Docker, installs deps)
@@ -98,6 +98,7 @@ Open [http://localhost:3000](http://localhost:3000) and start an interview.
 ```
 
 **Interview Flow:**
+
 1. User holds button and speaks into microphone
 2. Browser captures audio as WebM/Opus
 3. Audio sent to backend via WebSocket
