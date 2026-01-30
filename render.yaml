@@ -55,34 +55,6 @@ services:
       - key: LLM_PROVIDER
         value: anthropic
 
-  # ── Worker (background service) ────────────────────────────────────
-  - type: worker
-    name: intervue-worker
-    runtime: python
-    region: oregon
-    plan: free
-    rootDir: ./services/worker
-    buildCommand: pip install .
-    startCommand: python -m worker.main
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: intervue-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          name: intervue-redis
-          type: keyvalue
-          property: connectionString
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: DEEPGRAM_API_KEY
-        sync: false
-      - key: ELEVENLABS_API_KEY
-        sync: false
-
   # ── Redis (key-value store) ────────────────────────────────────────
   - type: keyvalue
     name: intervue-redis

@@ -183,6 +183,7 @@ export class WSClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
   private reconnectDelay = 1000;
+  private intentionalDisconnect = false;
 
   constructor(options: WSClientOptions) {
     this.options = options;
@@ -193,6 +194,7 @@ export class WSClient {
       return;
     }
 
+    this.intentionalDisconnect = false;
     this.ws = new WebSocket(this.options.url);
 
     this.ws.onopen = () => {
@@ -267,6 +269,8 @@ export class WSClient {
   }
 
   private attemptReconnect(): void {
+    if (this.intentionalDisconnect) return;
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.options.onError?.(
         "MAX_RECONNECT",
@@ -377,6 +381,7 @@ export class WSClient {
   }
 
   disconnect(): void {
+    this.intentionalDisconnect = true;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -389,7 +394,7 @@ export class WSClient {
 }
 
 export function createWSClient(sessionId: string, options: Omit<WSClientOptions, "url">): WSClient {
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+  const wsUrl = (process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000").trim();
   if (!process.env.NEXT_PUBLIC_WS_URL && typeof window !== "undefined" && window.location.hostname !== "localhost") {
     console.warn("NEXT_PUBLIC_WS_URL is not set and hostname is not localhost — WebSocket may fail to connect.");
   }
