@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 
-from app.services.llm.client import LLMClient, LLMMessage, get_llm_client
+from app.services.llm.client import LLMMessage, get_llm_client
 from app.services.orchestrator.state import InterviewState
 
 logger = logging.getLogger(__name__)

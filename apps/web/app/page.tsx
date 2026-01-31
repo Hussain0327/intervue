@@ -238,7 +238,7 @@ export default function Home() {
                     Congratulations!
                   </h3>
                   <p className="text-teal-600 mb-6">
-                    You've passed all interview rounds. You got the job!
+                    You&apos;ve passed all interview rounds. You got the job!
                   </p>
                   <button
                     onClick={handleReset}

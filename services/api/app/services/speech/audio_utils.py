@@ -24,7 +24,9 @@ def save_audio_to_temp_file(audio_bytes: bytes, suffix: str = ".webm") -> Path:
         return Path(f.name)
 
 
-def create_audio_file_like(audio_bytes: bytes, filename: str = "audio.webm") -> tuple[str, io.BytesIO, str]:
+def create_audio_file_like(
+    audio_bytes: bytes, filename: str = "audio.webm"
+) -> tuple[str, io.BytesIO, str]:
     """Create a file-like tuple for OpenAI API uploads.
 
     Returns (filename, file_obj, content_type) tuple.

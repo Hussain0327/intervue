@@ -49,7 +49,7 @@ export function NotesPanel({
       {selectedText && (
         <div className="px-4 py-2 bg-cyan-50 border-b border-cyan-200 flex items-center gap-2 animate-fade-in-down">
           <span className="text-xs text-cyan-700 truncate flex-1">
-            "{selectedText.slice(0, 50)}{selectedText.length > 50 ? '...' : ''}"
+            &quot;{selectedText.slice(0, 50)}{selectedText.length > 50 ? '...' : ''}&quot;
           </span>
           <button
             onClick={handleSaveHighlight}

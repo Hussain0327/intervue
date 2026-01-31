@@ -3,7 +3,7 @@ import logging
 import uuid as uuid_mod
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.core.security import verify_token_or_none

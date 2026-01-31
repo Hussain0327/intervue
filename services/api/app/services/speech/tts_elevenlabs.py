@@ -103,6 +103,7 @@ class ElevenLabsStreamingTTS:
             Audio chunks as bytes
         """
         import asyncio
+
         from elevenlabs import VoiceSettings
 
         # Buffer for collecting text

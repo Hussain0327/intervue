@@ -69,10 +69,10 @@ async def parse_resume(
         raise HTTPException(
             status_code=400,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         logger.exception(f"Resume parsing failed: {e}")
         raise HTTPException(
             status_code=500,
             detail="Failed to parse resume. Please try again or use a different file.",
-        )
+        ) from e

@@ -601,7 +601,7 @@ function SessionEndedCard({
           Congratulations!
         </h3>
         <p className="text-teal-600 mb-4">
-          You've passed all interview rounds!
+          You&apos;ve passed all interview rounds!
         </p>
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 max-w-md mx-auto">
           <p className="text-green-700 font-medium">You got the job!</p>

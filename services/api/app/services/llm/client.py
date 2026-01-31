@@ -1,9 +1,8 @@
-import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 

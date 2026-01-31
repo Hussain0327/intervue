@@ -8,7 +8,6 @@ at each stage rather than waiting for complete results.
 """
 
 import asyncio
-import base64
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -18,8 +17,10 @@ from app.core.config import get_settings
 from app.services.llm.client import LLMClient, LLMMessage, get_llm_client
 from app.services.speech.sentence_buffer import SentenceBuffer
 from app.services.speech.stt_deepgram import DeepgramStreamingSTT, get_deepgram_client
-from app.services.speech.stt_whisper import WhisperSTT, get_stt_client as get_whisper_client
-from app.services.speech.tts_client import OpenAITTS, get_tts_client as get_openai_tts_client
+from app.services.speech.stt_whisper import WhisperSTT
+from app.services.speech.stt_whisper import get_stt_client as get_whisper_client
+from app.services.speech.tts_client import OpenAITTS
+from app.services.speech.tts_client import get_tts_client as get_openai_tts_client
 from app.services.speech.tts_elevenlabs import ElevenLabsStreamingTTS, get_elevenlabs_client
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,8 @@ class StreamingPipeline:
         Args:
             audio_data: Raw audio bytes from user
             messages: Conversation history for LLM context
-            build_system_prompt: Callback that takes transcript text and returns the full system prompt
+            build_system_prompt: Callback that takes transcript text and
+                returns the full system prompt
             on_transcript: Callback for transcript updates (text, is_final)
             on_llm_text: Callback for LLM text chunks
             on_audio_chunk: Callback for audio chunks (data, is_final)
