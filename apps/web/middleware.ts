@@ -15,6 +15,7 @@ export function middleware(request: NextRequest) {
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",
+      "worker-src 'self' blob:",
       "connect-src 'self' wss://*.onrender.com https://*.onrender.com wss://*.intervue.app https://*.intervue.app https://cdn.jsdelivr.net",
       "frame-ancestors 'none'",
       "base-uri 'self'",
