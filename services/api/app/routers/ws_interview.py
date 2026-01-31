@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from pydantic import ValidationError
 
-from app.core.security import verify_token
+from app.core.security import verify_token_or_none
 from app.schemas.coding import CodeSubmission
 from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
@@ -435,28 +435,17 @@ async def websocket_interview(
 ) -> None:
     """WebSocket endpoint for voice interview sessions.
 
-    Requires a valid JWT passed as a `token` query parameter:
+    Optionally accepts a JWT via `token` query parameter:
         ws://host/ws/interview/{session_id}?token=<jwt>
     """
     await websocket.accept()
 
-    # --- Authenticate ---
-    if not token:
-        await _ws_error_response(
-            websocket,
-            "AUTH_REQUIRED",
-            "Authentication token is required. Pass ?token=<jwt> in the URL.",
-            recoverable=False,
-            set_ready=False,
-        )
-        await websocket.close(code=1008)
-        return
+    # --- Optional authentication ---
+    user = verify_token_or_none(token)
 
-    try:
-        user = verify_token(token)
-        logger.info("WebSocket authenticated: user=%s session=%s", user.sub, session_id)
-    except Exception as exc:
-        logger.warning("WebSocket auth failed for session %s: %s", session_id, exc)
+    if token and not user:
+        # Token was provided but failed verification — reject
+        logger.warning("WebSocket auth failed for session %s", session_id)
         await _ws_error_response(
             websocket,
             "AUTH_FAILED",
@@ -466,6 +455,11 @@ async def websocket_interview(
         )
         await websocket.close(code=1008)
         return
+
+    if user:
+        logger.info("WebSocket authenticated: user=%s session=%s", user.sub, session_id)
+    else:
+        logger.info("WebSocket anonymous session: %s", session_id)
 
     # Validate session ID is a UUID
     if not _validate_session_id(session_id):
