@@ -68,6 +68,13 @@ export default function InterviewSession() {
   const { updateRound, hasCompletedAllRounds, getNextAvailableRound, getProgress } = useInterviewProgress();
   const { notes, updateNotes, addHighlight } = useInterviewNotes({ sessionId });
 
+  // Stable refs so the WS effect doesn't re-run when these change
+  const updateRoundRef = useRef(updateRound);
+  useEffect(() => { updateRoundRef.current = updateRound; }, [updateRound]);
+
+  const sessionEndedRef = useRef(sessionEnded);
+  useEffect(() => { sessionEndedRef.current = sessionEnded; }, [sessionEnded]);
+
   // Get current round and mode from sessionStorage on mount
   useEffect(() => {
     const storedRound = sessionStorage.getItem(SK_CURRENT_ROUND);
@@ -136,7 +143,7 @@ export default function InterviewSession() {
     const client = createWSClient(sessionId, {
       onConnectionChange: (connected) => {
         setIsConnected(connected);
-        if (!connected && !sessionEnded) {
+        if (!connected && !sessionEndedRef.current) {
           setError("Connection lost. Attempting to reconnect...");
         } else {
           setError(null);
@@ -214,7 +221,7 @@ export default function InterviewSession() {
         const result = { round, score, passed, feedback };
         setEvaluationResult(result);
         // Update localStorage with result
-        updateRound(round, { score, passed, feedback });
+        updateRoundRef.current(round, { score, passed, feedback });
         // Update local round statuses
         setRoundStatuses((prev) => ({
           ...prev,
@@ -308,7 +315,7 @@ export default function InterviewSession() {
       streamingPlayerRef.current?.destroy();
       streamingPlayerRef.current = null;
     };
-  }, [sessionId, sessionEnded, updateRound]);
+  }, [sessionId]);
 
   const handleRecordingComplete = useCallback((audioBase64: string, format: string) => {
     if (wsClientRef.current?.isConnected) {
