@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { blobToBase64, getSupportedMimeType } from "@/lib/audio/encode";
 
 export interface RecorderProps {
@@ -20,6 +20,7 @@ export function Recorder({
   disabled = false,
   variant = "default",
 }: RecorderProps) {
+  const gradientId = useId();
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -216,13 +217,13 @@ export function Recorder({
                 cy="50"
                 r="46"
                 fill="none"
-                stroke="url(#teal-gradient)"
+                stroke={`url(#${gradientId})`}
                 strokeWidth="4"
                 strokeLinecap="round"
                 strokeDasharray="60 200"
               />
               <defs>
-                <linearGradient id="teal-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stopColor="#00CED1" />
                   <stop offset="100%" stopColor="#1A7A7A" />
                 </linearGradient>

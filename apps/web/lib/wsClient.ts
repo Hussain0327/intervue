@@ -181,8 +181,8 @@ export class WSClient {
   private ws: WebSocket | null = null;
   private options: WSClientOptions;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 3;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = 8;
+  private reconnectDelay = 2000;
   private intentionalDisconnect = false;
 
   constructor(options: WSClientOptions) {

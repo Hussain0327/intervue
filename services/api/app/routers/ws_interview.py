@@ -400,21 +400,28 @@ async def start_interview(websocket: WebSocket, session_id: str) -> None:
         interviewer_text = llm_result.text
         seq = state.add_message("interviewer", interviewer_text)
 
-        # Send transcript
+        # Send transcript (always succeeds if LLM worked)
         await send_message(
             websocket,
             TranscriptMessage(role="interviewer", text=interviewer_text, sequence=seq),
         )
 
-        # Generate TTS
-        await send_message(websocket, StatusMessage(state=WSState.SPEAKING))
-
-        tts_result = await tts_client.synthesize(interviewer_text)
-
-        await send_message(
-            websocket,
-            AudioResponseMessage(data=tts_result.audio_base64, format=tts_result.format),
-        )
+        # Generate TTS — non-fatal if it fails
+        try:
+            await send_message(websocket, StatusMessage(state=WSState.SPEAKING))
+            tts_result = await tts_client.synthesize(interviewer_text)
+            await send_message(
+                websocket,
+                AudioResponseMessage(data=tts_result.audio_base64, format=tts_result.format),
+            )
+        except Exception:
+            logger.exception("TTS failed for session %s — continuing without audio", session_id)
+            await _ws_error_response(
+                websocket,
+                "TTS_UNAVAILABLE",
+                "Voice synthesis is unavailable. Interview will continue in text-only mode.",
+                recoverable=True,
+            )
 
     except Exception:
         logger.exception("Error starting interview")
