@@ -3,12 +3,15 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import JSON, String
+from sqlalchemy import Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.code_submission import CodeSubmission
+    from app.models.evaluation import Evaluation
     from app.models.transcript import Transcript
 
 
@@ -34,19 +37,19 @@ class Difficulty(str, Enum):
 
 
 class InterviewSession(Base, UUIDMixin, TimestampMixin):
-    """Model for interview sessions."""
+    """Model for interview sessions — aligned with 001_initial_schema migration."""
 
     __tablename__ = "interview_sessions"
 
-    user_id: Mapped[UUID | None] = mapped_column(nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(50),
-        default=SessionStatus.PENDING.value,
-        nullable=False,
-    )
+    user_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
     interview_type: Mapped[str] = mapped_column(
         String(50),
         default=InterviewType.BEHAVIORAL.value,
+        nullable=False,
+    )
+    interview_mode: Mapped[str] = mapped_column(
+        String(50),
+        default="full",
         nullable=False,
     )
     difficulty: Mapped[str] = mapped_column(
@@ -54,12 +57,28 @@ class InterviewSession(Base, UUIDMixin, TimestampMixin):
         default=Difficulty.MEDIUM.value,
         nullable=False,
     )
-    current_stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    stage_metadata: Mapped[dict[str, Any]] = mapped_column(
-        JSON,
-        default=dict,
+    current_round: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
         nullable=False,
     )
+    phase: Mapped[str] = mapped_column(
+        String(50),
+        default="introduction",
+        nullable=False,
+    )
+    questions_asked: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    max_questions: Mapped[int] = mapped_column(
+        Integer,
+        default=5,
+        nullable=False,
+    )
+    target_role: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    resume_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
@@ -68,8 +87,18 @@ class InterviewSession(Base, UUIDMixin, TimestampMixin):
         "Transcript",
         back_populates="session",
         cascade="all, delete-orphan",
-        order_by="Transcript.sequence_number",
+        order_by="Transcript.sequence",
+    )
+    evaluations: Mapped[list["Evaluation"]] = relationship(
+        "Evaluation",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    code_submissions: Mapped[list["CodeSubmission"]] = relationship(
+        "CodeSubmission",
+        back_populates="session",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
-        return f"<InterviewSession {self.id} status={self.status}>"
+        return f"<InterviewSession {self.id} phase={self.phase}>"

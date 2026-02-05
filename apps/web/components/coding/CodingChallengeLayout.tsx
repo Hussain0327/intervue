@@ -15,11 +15,22 @@ import { LatencyStage } from "@/lib/types/interview";
 import { Recorder } from "@/components/audio/Recorder";
 import { Player } from "@/components/audio/Player";
 
+interface CodeExecutionResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  timed_out: boolean;
+  execution_time_ms: number;
+}
+
 interface CodingChallengeLayoutProps {
   problem: CodingProblem | null;
   isProblemLoading: boolean;
   onCodeSubmit: (code: string, language: string) => void;
+  onRunCode?: (code: string, language: string) => void;
   isSubmitting: boolean;
+  isRunning?: boolean;
+  executionResult?: CodeExecutionResult | null;
   evaluationResult: CodeEvaluationResult | null;
   // Voice interaction props
   interviewerName: string;
@@ -38,7 +49,10 @@ export function CodingChallengeLayout({
   problem,
   isProblemLoading,
   onCodeSubmit,
+  onRunCode,
   isSubmitting,
+  isRunning,
+  executionResult,
   evaluationResult,
   interviewerName,
   interviewerRole,
@@ -78,6 +92,12 @@ export function CodingChallengeLayout({
       onCodeSubmit(code, language);
     }
   }, [code, language, onCodeSubmit]);
+
+  const handleRunCode = useCallback(() => {
+    if (code.trim() && onRunCode) {
+      onRunCode(code, language);
+    }
+  }, [code, language, onRunCode]);
 
   // Show skeleton state while connecting
   const isLoading = !isConnected;
@@ -170,6 +190,74 @@ export function CodingChallengeLayout({
               isSubmitting={isSubmitting}
             />
           </div>
+
+          {/* Action buttons */}
+          <div className="flex-shrink-0 flex gap-3">
+            {onRunCode && (
+              <button
+                onClick={handleRunCode}
+                disabled={!problem || !code.trim() || isRunning}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  isRunning
+                    ? "bg-gray-100 text-gray-400 cursor-wait"
+                    : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                }`}
+              >
+                {isRunning ? (
+                  <span className="flex items-center gap-2">
+                    <RunSpinner />
+                    Running...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <PlayIcon className="w-4 h-4" />
+                    Run Code
+                  </span>
+                )}
+              </button>
+            )}
+            <button
+              onClick={handleSubmit}
+              disabled={!problem || !code.trim() || isSubmitting}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isSubmitting
+                  ? "bg-teal-300 text-white cursor-wait"
+                  : "bg-teal-600 hover:bg-teal-700 text-white"
+              }`}
+            >
+              {isSubmitting ? "Submitting..." : "Submit for Review"}
+            </button>
+          </div>
+
+          {/* Execution output */}
+          {executionResult && (
+            <div className="flex-shrink-0 rounded-xl border border-gray-200 bg-gray-900 text-gray-100 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+                <span className="text-xs font-medium text-gray-300">Output</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-400">
+                    {executionResult.execution_time_ms}ms
+                  </span>
+                  {executionResult.timed_out ? (
+                    <span className="text-xs text-amber-400 font-medium">Timed Out</span>
+                  ) : executionResult.exit_code === 0 ? (
+                    <span className="text-xs text-green-400 font-medium">Exit: 0</span>
+                  ) : (
+                    <span className="text-xs text-red-400 font-medium">Exit: {executionResult.exit_code}</span>
+                  )}
+                </div>
+              </div>
+              <pre className="p-4 text-sm font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {executionResult.stdout || executionResult.stderr || "(no output)"}
+                {executionResult.stdout && executionResult.stderr && (
+                  <>
+                    {"\n"}
+                    <span className="text-red-400">{executionResult.stderr}</span>
+                  </>
+                )}
+              </pre>
+            </div>
+          )}
 
           {/* Evaluation result */}
           {evaluationResult && (
@@ -272,6 +360,27 @@ function XIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+    </svg>
+  );
+}
+
+function RunSpinner() {
+  return (
+    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      />
     </svg>
   );
 }

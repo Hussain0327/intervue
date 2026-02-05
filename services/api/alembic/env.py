@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 
 # Import all models to ensure they're registered with Base
-from app.models import InterviewSession, Transcript  # noqa: F401
+from app.models import CodeSubmission, Evaluation, InterviewSession, Transcript, User  # noqa: F401
 
 config = context.config
 settings = get_settings()

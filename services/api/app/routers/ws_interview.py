@@ -2,11 +2,13 @@ import json
 import logging
 import uuid as uuid_mod
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.core.security import verify_token_or_none
+from app.db.session import AsyncSessionLocal
 from app.schemas.coding import CodeSubmission
 from app.schemas.resume import ParsedResume
 from app.schemas.ws_messages import (
@@ -14,6 +16,7 @@ from app.schemas.ws_messages import (
     AudioResponseMessage,
     CodeEvaluationAnalysis,
     CodeEvaluationMessage,
+    CodeExecutionMessage,
     ErrorMessage,
     EvaluationMessage,
     ProblemMessage,
@@ -38,6 +41,7 @@ from app.services.orchestrator.prompts import (
 )
 from app.services.orchestrator.state import SessionPhase, session_manager
 from app.services.orchestrator.streaming_pipeline import get_streaming_pipeline
+from app.services.persistence.session_repo import SessionRepository
 from app.services.speech.audio_utils import decode_base64_audio
 from app.services.speech.stt_whisper import get_stt_client
 from app.services.speech.tts_client import get_tts_client
@@ -93,6 +97,7 @@ async def process_audio_turn(
     session_id: str,
     audio_data: str,
     audio_format: str,
+    repo: SessionRepository | None = None,
 ) -> None:
     """Process a complete audio turn from the candidate."""
     state = session_manager.get_session(session_id)
@@ -129,6 +134,12 @@ async def process_audio_turn(
             TranscriptMessage(role="candidate", text=candidate_text, sequence=seq),
         )
 
+        # Persist candidate transcript
+        if repo:
+            await repo.add_transcript(
+                UUID(session_id), "candidate", candidate_text, seq
+            )
+
         # Step 2: LLM - Generate interviewer response
         await send_message(websocket, StatusMessage(state=WSState.GENERATING))
 
@@ -163,6 +174,16 @@ async def process_audio_turn(
             TranscriptMessage(role="interviewer", text=interviewer_text, sequence=seq),
         )
 
+        # Persist interviewer transcript + update session phase
+        if repo:
+            await repo.add_transcript(
+                UUID(session_id), "interviewer", interviewer_text, seq
+            )
+            await repo.update_session_phase(
+                UUID(session_id), state.phase.value, state.questions_asked
+            )
+            await repo.db.commit()
+
         # Step 3: TTS - Synthesize interviewer voice
         await send_message(websocket, StatusMessage(state=WSState.SPEAKING))
 
@@ -195,6 +216,7 @@ async def process_audio_turn_streaming(
     session_id: str,
     audio_data: str,
     audio_format: str,
+    repo: SessionRepository | None = None,
 ) -> None:
     """Process audio with streaming pipeline for low-latency response.
 
@@ -244,6 +266,9 @@ async def process_audio_turn_streaming(
                 websocket,
                 TranscriptMessage(role="candidate", text=text, sequence=seq),
             )
+            # Persist candidate transcript
+            if repo:
+                await repo.add_transcript(UUID(session_id), "candidate", text, seq)
 
     async def on_llm_text(text: str) -> None:
         """Handle LLM text chunks."""
@@ -351,6 +376,16 @@ async def process_audio_turn_streaming(
             TranscriptMessage(role="interviewer", text=result.response_text, sequence=seq),
         )
 
+        # Persist interviewer transcript + update session phase
+        if repo:
+            await repo.add_transcript(
+                UUID(session_id), "interviewer", result.response_text, seq
+            )
+            await repo.update_session_phase(
+                UUID(session_id), state.phase.value, state.questions_asked
+            )
+            await repo.db.commit()
+
         logger.info(
             f"Streaming turn completed for {session_id}: "
             f"stt={result.stt_latency_ms}ms, "
@@ -376,7 +411,9 @@ async def process_audio_turn_streaming(
         )
 
 
-async def start_interview(websocket: WebSocket, session_id: str) -> None:
+async def start_interview(
+    websocket: WebSocket, session_id: str, repo: SessionRepository | None = None,
+) -> None:
     """Start the interview with an introduction from the interviewer."""
     state = session_manager.get_session(session_id)
     if not state:
@@ -405,6 +442,13 @@ async def start_interview(websocket: WebSocket, session_id: str) -> None:
             websocket,
             TranscriptMessage(role="interviewer", text=interviewer_text, sequence=seq),
         )
+
+        # Persist interviewer greeting
+        if repo:
+            await repo.add_transcript(
+                UUID(session_id), "interviewer", interviewer_text, seq
+            )
+            await repo.db.commit()
 
         # Generate TTS — non-fatal if it fails
         try:
@@ -487,7 +531,16 @@ async def websocket_interview(
 
     logger.info(f"Interview session started: {session_id}")
 
-    # Send session started message - client will send resume_context (optional) then start_interview
+    # Open database session for persistence
+    repo: SessionRepository | None = None
+    db_session = None
+    try:
+        db_session = AsyncSessionLocal()
+        repo = SessionRepository(db_session)
+    except Exception:
+        logger.warning("Could not open DB session — persistence disabled for %s", session_id)
+
+    # Send session started message
     await send_message(websocket, SessionStartedMessage(session_id=str(state.session_id)))
 
     interview_started = False
@@ -540,7 +593,32 @@ async def websocket_interview(
                     if interview_mode and state:
                         state.interview_mode = interview_mode
                         logger.info("Interview mode set for %s: %s", session_id, interview_mode)
-                    await start_interview(websocket, session_id)
+
+                    # Persist session to DB
+                    if repo and db_session:
+                        try:
+                            resume_data = None
+                            if state.parsed_resume:
+                                resume_data = state.parsed_resume.model_dump()
+                            await repo.create_session(
+                                session_id=UUID(session_id),
+                                user_id=UUID(user.sub) if user else None,
+                                interview_type=state.interview_type,
+                                interview_mode=state.interview_mode,
+                                difficulty=state.difficulty,
+                                current_round=state.current_round,
+                                target_role=state.target_role,
+                                resume_data=resume_data,
+                            )
+                            await db_session.commit()
+                        except Exception:
+                            logger.warning("Failed to persist session start", exc_info=True)
+                            try:
+                                await db_session.rollback()
+                            except Exception:
+                                pass
+
+                    await start_interview(websocket, session_id, repo)
                     await send_message(websocket, StatusMessage(state=WSState.READY))
 
             elif msg_type == "audio":
@@ -565,6 +643,7 @@ async def websocket_interview(
                         session_id,
                         audio_data,
                         message.get("format", "webm"),
+                        repo,
                     )
                 else:
                     # Use batch processing
@@ -573,6 +652,7 @@ async def websocket_interview(
                         session_id,
                         audio_data,
                         message.get("format", "webm"),
+                        repo,
                     )
                 # Ready for next turn
                 await send_message(websocket, StatusMessage(state=WSState.READY))
@@ -597,6 +677,25 @@ async def websocket_interview(
                             feedback=evaluation_result.feedback,
                         ),
                     )
+
+                    # Persist evaluation
+                    if repo and db_session:
+                        try:
+                            await repo.add_evaluation(
+                                session_id=UUID(session_id),
+                                round=evaluation_result.round,
+                                score=evaluation_result.score,
+                                passed=evaluation_result.passed,
+                                feedback=evaluation_result.feedback,
+                            )
+                            await db_session.commit()
+                        except Exception:
+                            logger.warning("Failed to persist evaluation", exc_info=True)
+                            try:
+                                await db_session.rollback()
+                            except Exception:
+                                pass
+
                     logger.info(
                         f"Evaluation sent for session {session_id}: "
                         f"round={evaluation_result.round}, score={evaluation_result.score}"
@@ -721,6 +820,36 @@ async def websocket_interview(
                             analysis=analysis,
                         ),
                     )
+
+                    # Persist code submission
+                    if repo and db_session:
+                        try:
+                            analysis_dict = None
+                            if eval_result.analysis:
+                                analysis_dict = {
+                                    "correctness": eval_result.analysis.correctness,
+                                    "edge_case_handling": eval_result.analysis.edge_case_handling,
+                                    "code_quality": eval_result.analysis.code_quality,
+                                    "complexity": eval_result.analysis.complexity,
+                                }
+                            await repo.add_code_submission(
+                                session_id=UUID(session_id),
+                                problem_id=problem_id,
+                                code=code,
+                                language=language,
+                                correct=eval_result.correct,
+                                score=eval_result.score,
+                                feedback=eval_result.feedback,
+                                analysis=analysis_dict,
+                            )
+                            await db_session.commit()
+                        except Exception:
+                            logger.warning("Failed to persist code submission", exc_info=True)
+                            try:
+                                await db_session.rollback()
+                            except Exception:
+                                pass
+
                     logger.info(
                         f"Code evaluation for session {session_id}: "
                         f"correct={eval_result.correct}, score={eval_result.score}"
@@ -740,8 +869,58 @@ async def websocket_interview(
 
                 await send_message(websocket, StatusMessage(state=WSState.READY))
 
+            elif msg_type == "run_code":
+                # Run code in sandbox (separate from AI review)
+                code = message.get("code", "")
+                language = message.get("language", "python")
+                test_input = message.get("stdin", "")
+
+                if len(code) > MAX_CODE_LENGTH:
+                    await _ws_error_response(
+                        websocket, "CODE_TOO_LARGE",
+                        f"Code exceeds maximum length of {MAX_CODE_LENGTH} characters.",
+                    )
+                    continue
+
+                await send_message(websocket, StatusMessage(state=WSState.GENERATING))
+
+                try:
+                    from app.services.coding.sandbox_executor import execute_code_sandbox
+                    result = await execute_code_sandbox(code, language, test_input)
+                    await send_message(
+                        websocket,
+                        CodeExecutionMessage(
+                            stdout=result.get("stdout", ""),
+                            stderr=result.get("stderr", ""),
+                            exit_code=result.get("exit_code", -1),
+                            timed_out=result.get("timed_out", False),
+                            execution_time_ms=result.get("execution_time_ms", 0),
+                        ),
+                    )
+                except Exception:
+                    logger.exception("Code execution error for session %s", session_id)
+                    await send_message(
+                        websocket,
+                        CodeExecutionMessage(
+                            stdout="",
+                            stderr="Code execution service is unavailable.",
+                            exit_code=-1,
+                            timed_out=False,
+                            execution_time_ms=0,
+                        ),
+                    )
+
+                await send_message(websocket, StatusMessage(state=WSState.READY))
+
             elif msg_type == "end_session":
                 # End the session
+                if repo and db_session:
+                    try:
+                        await repo.end_session(UUID(session_id))
+                        await db_session.commit()
+                    except Exception:
+                        logger.warning("Failed to persist session end", exc_info=True)
+
                 await send_message(
                     websocket,
                     SessionEndedMessage(
@@ -768,5 +947,17 @@ async def websocket_interview(
                 "Failed to send error on closing WebSocket: %s", session_id,
             )
     finally:
+        # Persist session end on disconnect
+        if repo and db_session:
+            try:
+                await repo.end_session(UUID(session_id))
+                await db_session.commit()
+            except Exception:
+                logger.debug("Failed to persist session end on disconnect")
+        if db_session:
+            try:
+                await db_session.close()
+            except Exception:
+                pass
         await session_manager.remove_session(session_id)
         logger.info(f"Interview session ended: {session_id}")

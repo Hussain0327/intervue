@@ -44,6 +44,13 @@ export function middleware(request: NextRequest) {
   // Prevent XSS reflected attacks in older browsers
   response.headers.set("X-XSS-Protection", "1; mode=block");
 
+  // Redirect protected routes to login if no token cookie
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/dashboard")) {
+    // Client-side auth check handles actual redirect via AuthProvider
+    // This middleware just ensures security headers are set
+  }
+
   return response;
 }
 

@@ -198,3 +198,14 @@ class StreamingStatusMessage(BaseModel):
     type: Literal["streaming_status"] = "streaming_status"
     stage: Literal["transcribing", "thinking", "speaking"]
     latency_ms: int | None = None
+
+
+class CodeExecutionMessage(BaseModel):
+    """Result of running code in sandbox."""
+
+    type: Literal["code_execution"] = "code_execution"
+    stdout: str
+    stderr: str
+    exit_code: int
+    timed_out: bool
+    execution_time_ms: int

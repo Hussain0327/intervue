@@ -3,7 +3,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, UUIDMixin
@@ -19,12 +19,16 @@ class TranscriptRole(str, Enum):
 
 
 class Transcript(Base, UUIDMixin):
-    """Model for interview transcripts."""
+    """Model for interview transcripts — aligned with 001_initial_schema migration."""
 
     __tablename__ = "transcripts"
 
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("interview_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(
+        Integer,
         nullable=False,
     )
     role: Mapped[str] = mapped_column(
@@ -35,16 +39,11 @@ class Transcript(Base, UUIDMixin):
         Text,
         nullable=False,
     )
-    sequence_number: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-    )
-    stt_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    llm_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tts_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audio_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
         nullable=False,
-        default=datetime.utcnow,
     )
 
     # Relationships
@@ -54,4 +53,4 @@ class Transcript(Base, UUIDMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<Transcript {self.id} role={self.role} seq={self.sequence_number}>"
+        return f"<Transcript {self.id} role={self.role} seq={self.sequence}>"

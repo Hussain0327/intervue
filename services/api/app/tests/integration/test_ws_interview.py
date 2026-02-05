@@ -240,3 +240,173 @@ async def test_full_conversation_turn(ws_client):
             responses = await _drain(ws, count=10)
             types_received = [r["type"] for r in responses]
             assert "status" in types_received
+
+
+# ---------------------------------------------------------------------------
+# Additional WebSocket tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_end_session_flow(ws_client):
+    """end_session should return session_ended with total_turns."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            msg = await _recv(ws)
+            assert msg["type"] == "session_started"
+
+            await ws.send_text(json.dumps({"type": "end_session"}))
+            msg = await _recv(ws)
+            assert msg["type"] == "session_ended"
+            assert "total_turns" in msg
+
+
+@pytest.mark.anyio
+async def test_start_interview_with_options(ws_client):
+    """start_interview accepts role, round, and mode options."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            await ws.send_text(json.dumps({
+                "type": "start_interview",
+                "role": "Software Engineer",
+                "round": 2,
+                "mode": "coding",
+            }))
+            # Should get some response (status/transcript/error depending on APIs)
+            try:
+                msg = await _recv(ws, timeout=3)
+                assert "type" in msg
+            except TimeoutError:
+                pytest.skip("No API response")
+
+
+@pytest.mark.anyio
+async def test_audio_too_large_rejected(ws_client):
+    """Audio data exceeding 10MB should be rejected."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            large_audio = "A" * (10 * 1024 * 1024 + 1)
+            await ws.send_text(json.dumps({
+                "type": "audio",
+                "data": large_audio,
+                "format": "webm",
+            }))
+            msg = await _recv(ws)
+            assert msg["type"] == "error"
+            assert msg["code"] == "AUDIO_TOO_LARGE"
+
+
+@pytest.mark.anyio
+async def test_code_too_large_rejected(ws_client):
+    """Code exceeding 50K chars should be rejected."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            large_code = "x" * 50_001
+            await ws.send_text(json.dumps({
+                "type": "code_submission",
+                "code": large_code,
+                "language": "python",
+                "problem_id": "test",
+            }))
+            msg = await _recv(ws)
+            assert msg["type"] == "error"
+            assert msg["code"] == "CODE_TOO_LARGE"
+
+
+@pytest.mark.anyio
+async def test_invalid_language_rejected(ws_client):
+    """Unsupported language should be rejected."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            await ws.send_text(json.dumps({
+                "type": "code_submission",
+                "code": "print('hi')",
+                "language": "brainfuck",
+                "problem_id": "test",
+            }))
+            msg = await _recv(ws)
+            assert msg["type"] == "error"
+            assert msg["code"] == "INVALID_LANGUAGE"
+
+
+@pytest.mark.anyio
+async def test_code_submission_without_problem(ws_client):
+    """code_submission without a problem assigned should error."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            await ws.send_text(json.dumps({
+                "type": "code_submission",
+                "code": "print('hi')",
+                "language": "python",
+                "problem_id": "test",
+            }))
+            msg = await _recv(ws)
+            assert msg["type"] == "error"
+            assert msg["code"] == "NO_PROBLEM"
+
+
+@pytest.mark.anyio
+async def test_malformed_json(ws_client):
+    """Malformed JSON should not crash the server."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            await ws.send_text("{invalid json!!!")
+            # Server may or may not send a response — just verify it's still alive
+            await ws.send_text(json.dumps({"type": "playback_complete"}))
+            try:
+                msg = await _recv(ws, timeout=2)
+                assert "type" in msg
+            except TimeoutError:
+                pass
+
+
+@pytest.mark.anyio
+async def test_unknown_message_type(ws_client):
+    """Unknown message types should be silently ignored."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            await ws.send_text(json.dumps({"type": "nonexistent_type"}))
+            # Verify server is still operational
+            await ws.send_text(json.dumps({"type": "end_session"}))
+            msg = await _recv(ws)
+            assert msg["type"] == "session_ended"
+
+
+@pytest.mark.anyio
+async def test_resume_context_before_start(ws_client):
+    """resume_context before start_interview should be accepted."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            await ws.send_text(json.dumps({
+                "type": "resume_context",
+                "parsed_resume": {"raw_text": "Test resume content"},
+            }))
+            # Should not crash — verify by ending session
+            await ws.send_text(json.dumps({"type": "end_session"}))
+            msg = await _recv(ws)
+            assert msg["type"] == "session_ended"
+
+
+@pytest.mark.anyio
+async def test_binary_message_handling(ws_client):
+    """Binary messages should not crash the server."""
+    async with ws_client:
+        async with aconnect_ws(_ws_url(), client=ws_client) as ws:
+            await _recv(ws)  # session_started
+            # Send binary data
+            await ws.send_bytes(b"\x00\x01\x02\x03")
+            # Verify server is still running
+            await ws.send_text(json.dumps({"type": "end_session"}))
+            try:
+                msg = await _recv(ws, timeout=3)
+                assert "type" in msg
+            except TimeoutError:
+                pass

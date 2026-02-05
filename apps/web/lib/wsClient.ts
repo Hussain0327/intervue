@@ -1,3 +1,5 @@
+import { getAccessToken } from "./apiClient";
+
 export type InterviewState =
   | "ready"
   | "processing_stt"
@@ -17,7 +19,8 @@ export type MessageType =
   | "session_ended"
   | "evaluation"
   | "problem"
-  | "code_evaluation";
+  | "code_evaluation"
+  | "code_execution";
 
 export interface StatusMessage {
   type: "status";
@@ -96,6 +99,15 @@ export interface CodeEvaluationMessage {
   };
 }
 
+export interface CodeExecutionMessage {
+  type: "code_execution";
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  timed_out: boolean;
+  execution_time_ms: number;
+}
+
 // Streaming message types
 export interface TranscriptDeltaMessage {
   type: "transcript_delta";
@@ -133,7 +145,8 @@ export type ServerMessage =
   | SessionEndedMessage
   | EvaluationMessage
   | ProblemMessage
-  | CodeEvaluationMessage;
+  | CodeEvaluationMessage
+  | CodeExecutionMessage;
 
 const VALID_MESSAGE_TYPES = new Set<string>([
   "status",
@@ -148,6 +161,7 @@ const VALID_MESSAGE_TYPES = new Set<string>([
   "evaluation",
   "problem",
   "code_evaluation",
+  "code_execution",
 ]);
 
 function isServerMessage(data: unknown): data is ServerMessage {
@@ -175,6 +189,7 @@ export interface WSClientOptions {
   onEvaluation?: (round: number, score: number, passed: boolean, feedback: string) => void;
   onProblem?: (problem: ProblemMessage["problem"]) => void;
   onCodeEvaluation?: (result: CodeEvaluationMessage) => void;
+  onCodeExecution?: (result: CodeExecutionMessage) => void;
 }
 
 export class WSClient {
@@ -264,6 +279,9 @@ export class WSClient {
         break;
       case "code_evaluation":
         this.options.onCodeEvaluation?.(message);
+        break;
+      case "code_execution":
+        this.options.onCodeExecution?.(message);
         break;
     }
   }
@@ -380,6 +398,22 @@ export class WSClient {
     );
   }
 
+  sendRunCode(code: string, language: string, stdin: string = ""): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.options.onError?.("NOT_CONNECTED", "WebSocket not connected", true);
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "run_code",
+        code,
+        language,
+        stdin,
+      })
+    );
+  }
+
   disconnect(): void {
     this.intentionalDisconnect = true;
     if (this.ws) {
@@ -398,8 +432,13 @@ export function createWSClient(sessionId: string, options: Omit<WSClientOptions,
   if (!process.env.NEXT_PUBLIC_WS_URL && typeof window !== "undefined" && window.location.hostname !== "localhost") {
     console.warn("NEXT_PUBLIC_WS_URL is not set and hostname is not localhost — WebSocket may fail to connect.");
   }
+
+  // Append JWT token to WebSocket URL if available
+  const token = getAccessToken();
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+
   return new WSClient({
-    url: `${wsUrl}/ws/interview/${sessionId}`,
+    url: `${wsUrl}/ws/interview/${sessionId}${tokenParam}`,
     ...options,
   });
 }

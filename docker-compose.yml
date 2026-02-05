@@ -30,6 +30,20 @@ services:
       timeout: 5s
       retries: 5
 
+  worker:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    container_name: intervue-worker
+    environment:
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

@@ -76,7 +76,7 @@ app.add_middleware(
 
 
 # Import routers after app is created to avoid circular imports
-from app.routers import resume, ws_interview
+from app.routers import auth, dashboard, resume, sessions, ws_interview
 
 
 @app.get("/health")
@@ -122,6 +122,9 @@ async def readiness_check() -> dict[str, str]:
 # Include routers
 app.include_router(ws_interview.router, tags=["interview"])
 app.include_router(resume.router)
+app.include_router(auth.router)
+app.include_router(sessions.router)
+app.include_router(dashboard.router)
 
 
 if __name__ == "__main__":

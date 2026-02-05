@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+RUN useradd -m -s /bin/bash -u 1000 runner
+WORKDIR /sandbox
+RUN chown runner:runner /sandbox
+
+COPY runner/run_python.sh /sandbox/run.sh
+RUN chmod +x /sandbox/run.sh
+
+USER runner
+
+ENTRYPOINT ["/sandbox/run.sh"]

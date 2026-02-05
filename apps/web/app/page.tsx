@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ResumeUpload } from "@/components/ResumeUpload";
 import { ParsedResume } from "@/lib/api";
+import { useAuth } from "@/lib/AuthProvider";
 import {
   INTERVIEW_MODES,
   INTERVIEW_ROUNDS,
@@ -41,6 +43,7 @@ const CS_ROLES = [
 
 export default function Home() {
   const router = useRouter();
+  const { user } = useAuth();
   const [isStarting, setIsStarting] = useState(false);
   const [parsedResume, setParsedResume] = useState<ParsedResume | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -144,13 +147,41 @@ export default function Home() {
               <span className="text-xs text-teal-600 -mt-0.5">AI for Everyone</span>
             </div>
           </div>
-          <button
-            onClick={startInterview}
-            disabled={isStarting}
-            className="px-5 py-2.5 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-all hover:shadow-lg"
-          >
-            Start Interview
-          </button>
+          <div className="flex items-center gap-3">
+            {user ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className="px-4 py-2.5 text-sm font-medium text-teal-700 hover:text-teal-900 transition-colors"
+                >
+                  Dashboard
+                </Link>
+                <button
+                  onClick={startInterview}
+                  disabled={isStarting}
+                  className="px-5 py-2.5 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-all hover:shadow-lg"
+                >
+                  Start Interview
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="px-4 py-2.5 text-sm font-medium text-teal-700 hover:text-teal-900 transition-colors"
+                >
+                  Sign In
+                </Link>
+                <button
+                  onClick={startInterview}
+                  disabled={isStarting}
+                  className="px-5 py-2.5 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-all hover:shadow-lg"
+                >
+                  Start Interview
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         {/* Hero */}
