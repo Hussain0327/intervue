@@ -1,16 +1,14 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: intervue-postgres
     environment:
       POSTGRES_USER: intervue
-      POSTGRES_PASSWORD: intervue_dev
+      POSTGRES_PASSWORD: intervue
       POSTGRES_DB: intervue
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U intervue"]
       interval: 5s
@@ -19,31 +17,54 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: intervue-redis
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  worker:
-    build:
-      context: ./services/worker
-      dockerfile: Dockerfile
-    container_name: intervue-worker
-    environment:
-      REDIS_URL: redis://redis:6379
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backend:/app
+      - uploads:/app/uploads
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
 
 volumes:
-  postgres_data:
-  redis_data:
+  pgdata:
+  redisdata:
+  uploads:
